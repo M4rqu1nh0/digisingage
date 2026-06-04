@@ -1,0 +1,9 @@
+Coloca aqui los videos MAESTROS que distribuye el sistema.
+Ejemplos:  promo1.mp4, institucional.mp4, ofertas.mp4
+
+Estos archivos:
+  - Aparecen como "chips" en el dashboard para armar playlists.
+  - Se descargan en los clientes via  GET /download/{nombre}
+  - Tambien puedes subirlos desde el panel (boton de subida via API /api/admin/media).
+
+Formatos recomendados para <video> en Chrome: .mp4 (H.264/AAC) o .webm

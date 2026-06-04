@@ -1,0 +1,19 @@
+{
+  "name": "digisignage-server",
+  "version": "1.0.0",
+  "description": "Panel de Administracion Central para Carteleria Digital",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.1.1"
+  }
+}

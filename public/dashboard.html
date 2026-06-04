@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DigiSignage · Dashboard</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> DigiSignage</div>
+    <div class="right">
+      <span class="muted" id="clock"></span>
+      <input type="file" id="fileInput" accept="video/*,.mp4,.webm,.ogg,.mov,.mkv" multiple hidden />
+      <button class="btn ghost small" id="uploadBtn">⬆ Subir video</button>
+      <button class="btn ghost small" id="addBtn">+ Dispositivo</button>
+      <button class="btn ghost small" id="logoutBtn">Salir</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="toolbar">
+      <div>
+        <h2>Monitoreo y Gestión</h2>
+        <div class="muted" id="summary">Cargando…</div>
+      </div>
+      <div class="muted">Se actualiza cada 15&nbsp;s · Verde = activo en últimos 3&nbsp;min</div>
+    </div>
+
+    <div id="dropzone" class="dropzone">
+      <div class="dz-icon">⬆</div>
+      <div>Arrastra y suelta videos aquí para subirlos</div>
+      <small id="dzLimit" class="muted"></small>
+    </div>
+
+    <div id="uploadPanel" class="upload-panel"></div>
+
+    <div class="cards" id="cards"></div>
+  </div>
+
+  <script>
+    const cardsEl = document.getElementById('cards');
+    const summaryEl = document.getElementById('summary');
+    const clockEl = document.getElementById('clock');
+
+    let mediaCache = [];
+    let maxUploadMB = 0; // 0 = aún no conocido (se obtiene del servidor)
+
+    function fmtFecha(iso) {
+      if (!iso) return 'Nunca';
+      const d = new Date(iso);
+      const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+      if (diffSec < 60) return `hace ${diffSec}s`;
+      if (diffSec < 3600) return `hace ${Math.floor(diffSec / 60)} min`;
+      return d.toLocaleString('es');
+    }
+
+    // Renderiza el catalogo de videos disponibles en el servidor (chips).
+    function mediaBox(deviceId) {
+      if (!mediaCache.length) return '';
+      const chips = mediaCache
+        .map((m) => `<span class="chip" data-dev="${deviceId}" data-file="${m}">${m}</span>`)
+        .join('');
+      return `
+        <details class="media-box">
+          <summary>Videos disponibles en el servidor (${mediaCache.length})</summary>
+          <div class="media-list">${chips}</div>
+        </details>`;
+    }
+
+    function cardHTML(d) {
+      const statusCls = d.online ? 'online' : 'offline';
+      const statusTxt = d.online ? 'En Línea' : 'Fuera de Línea';
+      const playlistText = (d.playlist || []).join('\n');
+      return `
+        <div class="card" data-id="${d.id}">
+          <div class="card-head">
+            <div>
+              <p class="dev-name">${d.nombre}</p>
+              <div class="dev-meta">
+                ID: ${d.id}<br>
+                IP: ${d.ip_actual || '—'} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}
+              </div>
+            </div>
+            <span class="status ${statusCls}"><span class="led"></span>${statusTxt}</span>
+          </div>
+
+          <label class="muted">Playlist (un nombre de archivo por línea, en orden)</label>
+          <textarea class="playlist" spellcheck="false" placeholder="promo1.mp4&#10;institucional.mp4">${playlistText}</textarea>
+          ${mediaBox(d.id)}
+
+          <div class="card-actions">
+            <button class="btn small save">Guardar orden</button>
+            <button class="btn ghost small rename">Renombrar</button>
+            <button class="btn danger small del">Eliminar</button>
+            <span class="save-hint"></span>
+          </div>
+        </div>`;
+    }
+
+    async function loadMedia() {
+      try {
+        const res = await fetch('/api/admin/media');
+        if (res.ok) {
+          const data = await res.json();
+          mediaCache = data.media || [];
+          maxUploadMB = data.maxUploadMB || 0;
+          const lbl = document.getElementById('dzLimit');
+          if (lbl) lbl.textContent = maxUploadMB
+            ? `Formatos: mp4, webm, ogg, mov, mkv · Máx. ${maxUploadMB} MB por archivo`
+            : 'Formatos: mp4, webm, ogg, mov, mkv';
+        }
+      } catch {}
+    }
+
+    async function loadDevices() {
+      const res = await fetch('/api/admin/devices');
+      if (res.status === 401) { location.href = '/login.html'; return; }
+      const { devices } = await res.json();
+
+      const online = devices.filter((d) => d.online).length;
+      summaryEl.textContent = `${devices.length} dispositivo(s) · ${online} en línea`;
+
+      if (!devices.length) {
+        cardsEl.innerHTML = `<div class="empty">No hay dispositivos registrados.<br>
+          Aparecerán automáticamente cuando un cliente envíe su primer heartbeat,
+          o créalos con "+ Dispositivo".</div>`;
+        return;
+      }
+
+      // Preserva el texto que el usuario este editando (no pisar al refrescar).
+      const editing = {};
+      cardsEl.querySelectorAll('.card').forEach((c) => {
+        const ta = c.querySelector('.playlist');
+        if (ta === document.activeElement) editing[c.dataset.id] = ta.value;
+      });
+
+      cardsEl.innerHTML = devices.map(cardHTML).join('');
+
+      Object.entries(editing).forEach(([id, val]) => {
+        const ta = cardsEl.querySelector(`.card[data-id="${id}"] .playlist`);
+        if (ta) ta.value = val;
+      });
+    }
+
+    // ---- Eventos delegados ----
+    cardsEl.addEventListener('click', async (e) => {
+      const card = e.target.closest('.card');
+      if (!card) return;
+      const id = card.dataset.id;
+      const hint = card.querySelector('.save-hint');
+
+      // Insertar un video del catalogo en el textarea.
+      if (e.target.classList.contains('chip')) {
+        const ta = card.querySelector('.playlist');
+        const lines = ta.value.split('\n').map((l) => l.trim()).filter(Boolean);
+        lines.push(e.target.dataset.file);
+        ta.value = lines.join('\n');
+        return;
+      }
+
+      if (e.target.classList.contains('save')) {
+        const videos = card.querySelector('.playlist').value
+          .split('\n').map((l) => l.trim()).filter(Boolean);
+        hint.textContent = 'Guardando…';
+        hint.className = 'save-hint';
+        const res = await fetch('/api/admin/playlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceId: id, videos }),
+        });
+        if (res.ok) {
+          hint.textContent = '✔ Guardado';
+          hint.className = 'save-hint ok';
+        } else {
+          hint.textContent = '✖ Error';
+          hint.className = 'save-hint err';
+        }
+        setTimeout(() => (hint.textContent = ''), 2500);
+      }
+
+      if (e.target.classList.contains('rename')) {
+        const nombre = prompt('Nuevo nombre del dispositivo:');
+        if (nombre) {
+          await fetch('/api/admin/device', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId: id, nombre }),
+          });
+          loadDevices();
+        }
+      }
+
+      if (e.target.classList.contains('del')) {
+        if (confirm('¿Eliminar este dispositivo y su playlist?')) {
+          await fetch('/api/admin/device/' + encodeURIComponent(id), { method: 'DELETE' });
+          loadDevices();
+        }
+      }
+    });
+
+    document.getElementById('addBtn').addEventListener('click', async () => {
+      const deviceId = prompt('ID único del dispositivo (igual al config del cliente):');
+      if (!deviceId) return;
+      const nombre = prompt('Nombre descriptivo (ej. "Pantalla Recepción"):') || '';
+      await fetch('/api/admin/device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: deviceId.trim(), nombre: nombre.trim() }),
+      });
+      loadDevices();
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      location.href = '/login.html';
+    });
+
+    // ---- Subida de videos con indicador de progreso (%) ----
+    const uploadPanel = document.getElementById('uploadPanel');
+    const fileInput = document.getElementById('fileInput');
+
+    function humanSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(0) + ' KB';
+      if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+      return (bytes / 1073741824).toFixed(2) + ' GB';
+    }
+
+    // Sube un archivo via XHR para poder leer el progreso de carga.
+    function uploadOne(file) {
+      return new Promise((resolve) => {
+        const row = document.createElement('div');
+        row.className = 'up-row';
+        row.innerHTML = `
+          <div class="up-info">
+            <span class="up-name"></span>
+            <span class="up-pct">0%</span>
+          </div>
+          <div class="up-track"><div class="up-fill"></div></div>`;
+        row.querySelector('.up-name').textContent = `${file.name} (${humanSize(file.size)})`;
+        uploadPanel.prepend(row);
+
+        const fill = row.querySelector('.up-fill');
+        const pct = row.querySelector('.up-pct');
+
+        // Validación previa de tamaño (evita subir en vano si excede el límite).
+        if (maxUploadMB && file.size > maxUploadMB * 1024 * 1024) {
+          pct.textContent = `✖ Supera ${maxUploadMB} MB`;
+          row.classList.add('err');
+          setTimeout(() => row.remove(), 6000);
+          return resolve();
+        }
+
+        const form = new FormData();
+        form.append('video', file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/admin/media');
+        xhr.withCredentials = true; // envia la cookie de sesion
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (!e.lengthComputable) return;
+          const p = Math.round((e.loaded / e.total) * 100);
+          fill.style.width = p + '%';
+          pct.textContent = p + '%';
+        });
+
+        xhr.addEventListener('load', () => {
+          let serverMsg = '';
+          try { serverMsg = JSON.parse(xhr.responseText).error || ''; } catch {}
+          if (xhr.status >= 200 && xhr.status < 300) {
+            fill.style.width = '100%';
+            pct.textContent = '✔ Listo';
+            row.classList.add('ok');
+          } else if (xhr.status === 401) {
+            pct.textContent = '✖ Sesión expirada';
+            row.classList.add('err');
+            setTimeout(() => (location.href = '/login.html'), 1500);
+          } else {
+            // Incluye el caso 413 (supera el límite) con el mensaje del servidor.
+            pct.textContent = '✖ ' + (serverMsg || 'Error');
+            row.classList.add('err');
+          }
+          setTimeout(() => row.remove(), 6000);
+          resolve();
+        });
+
+        xhr.addEventListener('error', () => {
+          pct.textContent = '✖ Error de red';
+          row.classList.add('err');
+          setTimeout(() => row.remove(), 5000);
+          resolve();
+        });
+
+        xhr.send(form);
+      });
+    }
+
+    // Sube los archivos en serie y refresca el catálogo al terminar.
+    async function uploadFiles(files) {
+      for (const f of files) await uploadOne(f);
+      await loadMedia();
+      await loadDevices(); // actualiza los "chips" de videos disponibles
+    }
+
+    document.getElementById('uploadBtn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) uploadFiles(fileInput.files);
+      fileInput.value = ''; // permite volver a subir el mismo archivo
+    });
+
+    // ---- Drag & drop ----
+    const dropzone = document.getElementById('dropzone');
+    const VIDEO_RE = /\.(mp4|webm|ogg|mov|mkv)$/i;
+
+    function onlyVideos(fileList) {
+      return [...fileList].filter((f) => VIDEO_RE.test(f.name) || (f.type || '').startsWith('video/'));
+    }
+
+    // La zona dedicada también permite hacer clic para abrir el selector.
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    ['dragenter', 'dragover'].forEach((ev) =>
+      dropzone.addEventListener(ev, (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      })
+    );
+    ['dragleave', 'dragend', 'drop'].forEach((ev) =>
+      dropzone.addEventListener(ev, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+      })
+    );
+    dropzone.addEventListener('drop', (e) => {
+      const files = onlyVideos(e.dataTransfer.files);
+      if (files.length) uploadFiles(files);
+    });
+
+    // Evita que el navegador abra el archivo si se suelta fuera de la zona.
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => e.preventDefault());
+
+    function tick() { clockEl.textContent = new Date().toLocaleTimeString('es'); }
+    setInterval(tick, 1000); tick();
+
+    // Carga inicial + auto-refresco del monitoreo.
+    (async () => {
+      await loadMedia();
+      await loadDevices();
+      setInterval(loadDevices, 15000);
+    })();
+  </script>
+</body>
+</html>

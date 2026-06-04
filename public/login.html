@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DigiSignage · Acceso</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" id="loginForm">
+      <div class="brand"><span class="dot"></span> DigiSignage</div>
+      <div class="subtitle">Panel de Administración Central</div>
+
+      <label for="usuario">Usuario</label>
+      <input type="text" id="usuario" autocomplete="username" required autofocus />
+
+      <label for="password">Contraseña</label>
+      <input type="password" id="password" autocomplete="current-password" required />
+
+      <button class="btn block" type="submit">Ingresar</button>
+      <div class="error" id="error"></div>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorBox = document.getElementById('error');
+
+    // Si ya hay sesion activa, ir directo al dashboard.
+    fetch('/api/me').then((r) => { if (r.ok) location.href = '/dashboard.html'; });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.classList.remove('show');
+      const usuario = document.getElementById('usuario').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usuario, password }),
+        });
+        if (res.ok) {
+          location.href = '/dashboard.html';
+        } else {
+          const data = await res.json().catch(() => ({}));
+          errorBox.textContent = data.error || 'No se pudo iniciar sesión';
+          errorBox.classList.add('show');
+        }
+      } catch {
+        errorBox.textContent = 'Error de conexión con el servidor';
+        errorBox.classList.add('show');
+      }
+    });
+  </script>
+</body>
+</html>

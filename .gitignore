@@ -1,0 +1,21 @@
+# Dependencias (se reinstalan en el servidor; better-sqlite3 se recompila)
+node_modules/
+
+# Secretos / configuracion local
+.env
+
+# Base de datos SQLite (datos de produccion, no versionar)
+signage.db
+signage.db-wal
+signage.db-shm
+
+# Videos maestros subidos desde el panel (no versionar binarios grandes)
+media/*
+!media/.gitkeep
+!media/LEEME.txt
+
+# Logs y temporales
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
