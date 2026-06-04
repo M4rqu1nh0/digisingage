@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "PowerShell(git remote *)",
+      "Bash(git remote *)",
+      "Bash(git -c credential.interactive=never -c core.askpass= push -u origin main)",
+      "Bash(node --check sync.js)",
+      "Bash(node -e \"process.env.PORT=4123; require\\('./server.js'\\); setTimeout\\(async\\(\\)=>{const r=await fetch\\('http://localhost:4123/dashboard.html'\\);const t=await r.text\\(\\);console.log\\('STATUS',r.status\\);console.log\\('has library:', t.includes\\('id=\\\\\"libraryBox\\\\\"'\\)\\);console.log\\('has playlist-list:', t.includes\\('playlist-list'\\)\\);console.log\\('has addsel:', t.includes\\('addsel'\\)\\);process.exit\\(0\\);},800\\);\")",
+      "Bash(node -e \"process.env.PORT=4124; require\\('./server.js'\\); setTimeout\\(async\\(\\)=>{const r=await fetch\\('http://localhost:4124/dashboard.html'\\);const t=await r.text\\(\\);console.log\\('STATUS',r.status\\);console.log\\('has pl-dup btn:', t.includes\\('pl-dup'\\)\\);console.log\\('has dup handler:', t.includes\\('Duplicar \\(insertar'\\) || t.includes\\('classList.contains\\(\\\\'pl-dup\\\\'\\)'\\)\\);process.exit\\(0\\);},800\\);\")"
+    ]
+  }
+}

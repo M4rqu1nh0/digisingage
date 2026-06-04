@@ -35,6 +35,27 @@
 
     <div id="uploadPanel" class="upload-panel"></div>
 
+    <!-- Biblioteca de videos del servidor: selecciona uno o varios y asígnalos
+         a un dispositivo con el botón "Añadir seleccionados" de su tarjeta. -->
+    <details id="libraryBox" class="library" open>
+      <summary>
+        <span>📚 Biblioteca de videos (<span id="libCount">0</span>)</span>
+        <span class="muted" id="libSelInfo">0 seleccionado(s)</span>
+      </summary>
+      <div class="lib-wrap">
+        <table class="lib-table">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="libSelectAll" title="Seleccionar todos" /></th>
+              <th>Nombre del archivo</th>
+            </tr>
+          </thead>
+          <tbody id="libBody"></tbody>
+        </table>
+        <div class="lib-empty muted" id="libEmpty">Aún no hay videos. Sube alguno con «Subir video».</div>
+      </div>
+    </details>
+
     <div class="cards" id="cards"></div>
   </div>
 
@@ -46,6 +67,18 @@
     let mediaCache = [];
     let maxUploadMB = 0; // 0 = aún no conocido (se obtiene del servidor)
 
+    // Videos marcados en la biblioteca (para asignar a dispositivos).
+    const selectedMedia = new Set();
+    // Playlist en edición por dispositivo y marca de cambios sin guardar.
+    const localPlaylists = {};   // deviceId -> [archivo, ...]
+    const dirty = new Set();     // deviceIds con cambios sin guardar
+    let draggingActive = false;  // pausa el auto-refresco mientras se arrastra
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
     function fmtFecha(iso) {
       if (!iso) return 'Nunca';
       const d = new Date(iso);
@@ -55,47 +88,146 @@
       return d.toLocaleString('es');
     }
 
-    // Renderiza el catalogo de videos disponibles en el servidor (chips).
-    function mediaBox(deviceId) {
-      if (!mediaCache.length) return '';
-      const chips = mediaCache
-        .map((m) => `<span class="chip" data-dev="${deviceId}" data-file="${m}">${m}</span>`)
-        .join('');
-      return `
-        <details class="media-box">
-          <summary>Videos disponibles en el servidor (${mediaCache.length})</summary>
-          <div class="media-list">${chips}</div>
-        </details>`;
+    // ---------------------- Biblioteca de videos ----------------------
+    function renderLibrary() {
+      const body = document.getElementById('libBody');
+      const empty = document.getElementById('libEmpty');
+      document.getElementById('libCount').textContent = mediaCache.length;
+
+      // Descarta de la selección los archivos que ya no existen.
+      [...selectedMedia].forEach((f) => { if (!mediaCache.includes(f)) selectedMedia.delete(f); });
+
+      if (!mediaCache.length) {
+        body.innerHTML = '';
+        empty.style.display = '';
+        updateLibInfo();
+        return;
+      }
+      empty.style.display = 'none';
+      body.innerHTML = mediaCache.map((m) => `
+        <tr data-file="${esc(m)}">
+          <td class="col-check"><input type="checkbox" class="lib-check" ${selectedMedia.has(m) ? 'checked' : ''} /></td>
+          <td class="lib-name">${esc(m)}</td>
+        </tr>`).join('');
+      updateLibInfo();
+    }
+
+    function updateLibInfo() {
+      document.getElementById('libSelInfo').textContent = `${selectedMedia.size} seleccionado(s)`;
+      const all = document.getElementById('libSelectAll');
+      all.checked = mediaCache.length > 0 && selectedMedia.size === mediaCache.length;
+      all.indeterminate = selectedMedia.size > 0 && selectedMedia.size < mediaCache.length;
+    }
+
+    document.getElementById('libBody').addEventListener('change', (e) => {
+      if (!e.target.classList.contains('lib-check')) return;
+      const file = e.target.closest('tr').dataset.file;
+      if (e.target.checked) selectedMedia.add(file); else selectedMedia.delete(file);
+      updateLibInfo();
+    });
+
+    document.getElementById('libSelectAll').addEventListener('change', (e) => {
+      if (e.target.checked) mediaCache.forEach((m) => selectedMedia.add(m));
+      else selectedMedia.clear();
+      renderLibrary();
+    });
+
+    // ---------------------- Tarjetas de dispositivos ----------------------
+    function plItemHTML(file) {
+      return `<li class="pl-item" draggable="true" data-file="${esc(file)}">
+        <span class="pl-handle" title="Arrastra para ordenar">⠿</span>
+        <span class="pl-name">${esc(file)}</span>
+        <button class="pl-dup" title="Duplicar (repetir este video)">⧉</button>
+        <button class="pl-del" title="Quitar de la playlist">✕</button>
+      </li>`;
+    }
+
+    function makeItem(file) {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = plItemHTML(file).trim();
+      return tpl.content.firstChild;
     }
 
     function cardHTML(d) {
       const statusCls = d.online ? 'online' : 'offline';
       const statusTxt = d.online ? 'En Línea' : 'Fuera de Línea';
-      const playlistText = (d.playlist || []).join('\n');
+      const items = (d._playlist || []).map(plItemHTML).join('');
       return `
-        <div class="card" data-id="${d.id}">
+        <div class="card" data-id="${esc(d.id)}">
           <div class="card-head">
             <div>
-              <p class="dev-name">${d.nombre}</p>
+              <p class="dev-name">${esc(d.nombre)}</p>
               <div class="dev-meta">
-                ID: ${d.id}<br>
-                IP: ${d.ip_actual || '—'} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}
+                ID: ${esc(d.id)}<br>
+                IP: ${esc(d.ip_actual || '—')} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}
               </div>
             </div>
             <span class="status ${statusCls}"><span class="led"></span>${statusTxt}</span>
           </div>
 
-          <label class="muted">Playlist (un nombre de archivo por línea, en orden)</label>
-          <textarea class="playlist" spellcheck="false" placeholder="promo1.mp4&#10;institucional.mp4">${playlistText}</textarea>
-          ${mediaBox(d.id)}
+          <label class="muted">Playlist (arrastra para ordenar · ⧉ duplicar · ✕ quitar)</label>
+          <ul class="playlist-list" data-id="${esc(d.id)}">${items}</ul>
+          <div class="pl-empty muted">Sin videos. Selecciónalos arriba y pulsa «Añadir seleccionados».</div>
 
           <div class="card-actions">
+            <button class="btn ghost small addsel">➕ Añadir seleccionados</button>
             <button class="btn small save">Guardar orden</button>
             <button class="btn ghost small rename">Renombrar</button>
             <button class="btn danger small del">Eliminar</button>
             <span class="save-hint"></span>
           </div>
         </div>`;
+    }
+
+    function playlistFromDOM(list) {
+      return [...list.querySelectorAll('.pl-item')].map((li) => li.dataset.file);
+    }
+
+    function toggleEmpty(list) {
+      const empty = list.closest('.card').querySelector('.pl-empty');
+      if (empty) empty.style.display = list.children.length ? 'none' : '';
+    }
+
+    // Sincroniza el estado local desde el DOM y marca el dispositivo como editado.
+    function syncLocal(id, list) {
+      localPlaylists[id] = playlistFromDOM(list);
+      dirty.add(id);
+      toggleEmpty(list);
+    }
+
+    function getDragAfterElement(list, y) {
+      const items = [...list.querySelectorAll('.pl-item:not(.dragging)')];
+      return items.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset, element: child };
+        return closest;
+      }, { offset: -Infinity, element: null }).element;
+    }
+
+    function attachDnD(list) {
+      list.addEventListener('dragstart', (e) => {
+        const li = e.target.closest('.pl-item');
+        if (!li) return;
+        draggingActive = true;
+        li.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', li.dataset.file); } catch {}
+      });
+      list.addEventListener('dragend', (e) => {
+        const li = e.target.closest('.pl-item');
+        if (li) li.classList.remove('dragging');
+        draggingActive = false;
+        syncLocal(list.dataset.id, list);
+      });
+      list.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const dragging = list.querySelector('.pl-item.dragging');
+        if (!dragging) return;
+        const after = getDragAfterElement(list, e.clientY);
+        if (after == null) list.appendChild(dragging);
+        else list.insertBefore(dragging, after);
+      });
     }
 
     async function loadMedia() {
@@ -109,17 +241,32 @@
           if (lbl) lbl.textContent = maxUploadMB
             ? `Formatos: mp4, webm, ogg, mov, mkv · Máx. ${maxUploadMB} MB por archivo`
             : 'Formatos: mp4, webm, ogg, mov, mkv';
+          renderLibrary();
         }
       } catch {}
     }
 
     async function loadDevices() {
+      if (draggingActive) return; // no re-renderizar en mitad de un arrastre
       const res = await fetch('/api/admin/devices');
       if (res.status === 401) { location.href = '/login.html'; return; }
       const { devices } = await res.json();
 
       const online = devices.filter((d) => d.online).length;
       summaryEl.textContent = `${devices.length} dispositivo(s) · ${online} en línea`;
+
+      // Limpia estado local de dispositivos que ya no existen.
+      const ids = new Set(devices.map((d) => d.id));
+      Object.keys(localPlaylists).forEach((k) => {
+        if (!ids.has(k)) { delete localPlaylists[k]; dirty.delete(k); }
+      });
+
+      // Para cada dispositivo: si tiene cambios sin guardar, conserva la edición
+      // local; si no, refresca desde el servidor.
+      devices.forEach((d) => {
+        if (!dirty.has(d.id)) localPlaylists[d.id] = (d.playlist || []).slice();
+        d._playlist = localPlaylists[d.id] || [];
+      });
 
       if (!devices.length) {
         cardsEl.innerHTML = `<div class="empty">No hay dispositivos registrados.<br>
@@ -128,40 +275,59 @@
         return;
       }
 
-      // Preserva el texto que el usuario este editando (no pisar al refrescar).
-      const editing = {};
-      cardsEl.querySelectorAll('.card').forEach((c) => {
-        const ta = c.querySelector('.playlist');
-        if (ta === document.activeElement) editing[c.dataset.id] = ta.value;
-      });
-
       cardsEl.innerHTML = devices.map(cardHTML).join('');
-
-      Object.entries(editing).forEach(([id, val]) => {
-        const ta = cardsEl.querySelector(`.card[data-id="${id}"] .playlist`);
-        if (ta) ta.value = val;
+      cardsEl.querySelectorAll('.playlist-list').forEach((list) => {
+        attachDnD(list);
+        toggleEmpty(list);
       });
     }
 
-    // ---- Eventos delegados ----
+    // ---- Eventos delegados de las tarjetas ----
     cardsEl.addEventListener('click', async (e) => {
       const card = e.target.closest('.card');
       if (!card) return;
       const id = card.dataset.id;
+      const list = card.querySelector('.playlist-list');
       const hint = card.querySelector('.save-hint');
 
-      // Insertar un video del catalogo en el textarea.
-      if (e.target.classList.contains('chip')) {
-        const ta = card.querySelector('.playlist');
-        const lines = ta.value.split('\n').map((l) => l.trim()).filter(Boolean);
-        lines.push(e.target.dataset.file);
-        ta.value = lines.join('\n');
+      // Quitar un video de la playlist.
+      if (e.target.classList.contains('pl-del')) {
+        e.target.closest('.pl-item').remove();
+        syncLocal(id, list);
+        return;
+      }
+
+      // Duplicar un video (insertar una copia justo debajo) para poder repetirlo,
+      // p. ej. intercalar un spot entre otros videos. Luego se arrastra a su sitio.
+      if (e.target.classList.contains('pl-dup')) {
+        const li = e.target.closest('.pl-item');
+        li.after(makeItem(li.dataset.file));
+        syncLocal(id, list);
+        return;
+      }
+
+      // Añadir los videos seleccionados en la biblioteca a esta playlist.
+      if (e.target.classList.contains('addsel')) {
+        if (!selectedMedia.size) {
+          hint.textContent = 'Marca videos en la biblioteca primero';
+          hint.className = 'save-hint';
+          setTimeout(() => (hint.textContent = ''), 2500);
+          return;
+        }
+        const present = new Set(playlistFromDOM(list));
+        let added = 0;
+        selectedMedia.forEach((file) => {
+          if (!present.has(file)) { list.appendChild(makeItem(file)); added++; }
+        });
+        if (added) syncLocal(id, list);
+        hint.textContent = added ? `+${added} añadido(s) · Guarda para aplicar` : 'Ya estaban en la lista';
+        hint.className = 'save-hint';
+        setTimeout(() => (hint.textContent = ''), 2500);
         return;
       }
 
       if (e.target.classList.contains('save')) {
-        const videos = card.querySelector('.playlist').value
-          .split('\n').map((l) => l.trim()).filter(Boolean);
+        const videos = playlistFromDOM(list);
         hint.textContent = 'Guardando…';
         hint.className = 'save-hint';
         const res = await fetch('/api/admin/playlist', {
@@ -170,6 +336,9 @@
           body: JSON.stringify({ deviceId: id, videos }),
         });
         if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          localPlaylists[id] = Array.isArray(data.playlist) ? data.playlist : videos;
+          dirty.delete(id);
           hint.textContent = '✔ Guardado';
           hint.className = 'save-hint ok';
         } else {
@@ -177,6 +346,7 @@
           hint.className = 'save-hint err';
         }
         setTimeout(() => (hint.textContent = ''), 2500);
+        return;
       }
 
       if (e.target.classList.contains('rename')) {
@@ -189,13 +359,17 @@
           });
           loadDevices();
         }
+        return;
       }
 
       if (e.target.classList.contains('del')) {
         if (confirm('¿Eliminar este dispositivo y su playlist?')) {
           await fetch('/api/admin/device/' + encodeURIComponent(id), { method: 'DELETE' });
+          dirty.delete(id);
+          delete localPlaylists[id];
           loadDevices();
         }
+        return;
       }
     });
 
@@ -301,7 +475,7 @@
     async function uploadFiles(files) {
       for (const f of files) await uploadOne(f);
       await loadMedia();
-      await loadDevices(); // actualiza los "chips" de videos disponibles
+      await loadDevices();
     }
 
     document.getElementById('uploadBtn').addEventListener('click', () => fileInput.click());
@@ -310,7 +484,7 @@
       fileInput.value = ''; // permite volver a subir el mismo archivo
     });
 
-    // ---- Drag & drop ----
+    // ---- Drag & drop de subida ----
     const dropzone = document.getElementById('dropzone');
     const VIDEO_RE = /\.(mp4|webm|ogg|mov|mkv)$/i;
 
