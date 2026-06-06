@@ -178,6 +178,11 @@ textarea {
 }
 textarea:focus { border-color: var(--accent); }
 
+/* Secciones de medios (videos / imágenes) dentro de cada tarjeta. */
+.media-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.media-section > label { margin-top: 0; }
+.card-bottom { border-top: 1px solid var(--border); padding-top: 12px; }
+
 .card-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .save-hint { font-size: 12px; margin-left: auto; }
 .save-hint.ok { color: var(--green); }

@@ -11,8 +11,10 @@
     <div class="brand"><span class="dot"></span> DigiSignage</div>
     <div class="right">
       <span class="muted" id="clock"></span>
-      <input type="file" id="fileInput" accept="video/*,.mp4,.webm,.ogg,.mov,.mkv" multiple hidden />
-      <button class="btn ghost small" id="uploadBtn">⬆ Subir video</button>
+      <input type="file" id="fileInput-video" accept="video/*,.mp4,.webm,.ogg,.mov,.mkv" multiple hidden />
+      <input type="file" id="fileInput-image" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp" multiple hidden />
+      <button class="btn ghost small" id="uploadBtn-video">⬆ Subir video</button>
+      <button class="btn ghost small" id="uploadBtn-image">🖼 Subir imagen</button>
       <button class="btn ghost small" id="addBtn">+ Dispositivo</button>
       <button class="btn ghost small" id="logoutBtn">Salir</button>
     </div>
@@ -27,32 +29,58 @@
       <div class="muted">Se actualiza cada 15&nbsp;s · Verde = activo en últimos 3&nbsp;min</div>
     </div>
 
-    <div id="dropzone" class="dropzone">
-      <div class="dz-icon">⬆</div>
-      <div>Arrastra y suelta videos aquí para subirlos</div>
-      <small id="dzLimit" class="muted"></small>
-    </div>
-
+    <!-- Panel de progreso de subidas (compartido por videos e imágenes). -->
     <div id="uploadPanel" class="upload-panel"></div>
 
-    <!-- Biblioteca de videos del servidor: selecciona uno o varios y asígnalos
-         a un dispositivo con el botón "Añadir seleccionados" de su tarjeta. -->
-    <details id="libraryBox" class="library" open>
+    <!-- ---------- Biblioteca de VIDEOS ---------- -->
+    <div id="dropzone-video" class="dropzone">
+      <div class="dz-icon">⬆</div>
+      <div>Arrastra y suelta videos aquí para subirlos</div>
+      <small id="dzLimit-video" class="muted"></small>
+    </div>
+
+    <details id="libraryBox-video" class="library" open>
       <summary>
-        <span>📚 Biblioteca de videos (<span id="libCount">0</span>)</span>
-        <span class="muted" id="libSelInfo">0 seleccionado(s)</span>
+        <span>📚 Biblioteca de videos (<span id="libCount-video">0</span>)</span>
+        <span class="muted" id="libSelInfo-video">0 seleccionado(s)</span>
       </summary>
       <div class="lib-wrap">
         <table class="lib-table">
           <thead>
             <tr>
-              <th class="col-check"><input type="checkbox" id="libSelectAll" title="Seleccionar todos" /></th>
+              <th class="col-check"><input type="checkbox" id="libSelectAll-video" title="Seleccionar todos" /></th>
               <th>Nombre del archivo</th>
             </tr>
           </thead>
-          <tbody id="libBody"></tbody>
+          <tbody id="libBody-video"></tbody>
         </table>
-        <div class="lib-empty muted" id="libEmpty">Aún no hay videos. Sube alguno con «Subir video».</div>
+        <div class="lib-empty muted" id="libEmpty-video">Aún no hay videos. Sube alguno con «Subir video».</div>
+      </div>
+    </details>
+
+    <!-- ---------- Biblioteca de IMÁGENES ---------- -->
+    <div id="dropzone-image" class="dropzone">
+      <div class="dz-icon">🖼</div>
+      <div>Arrastra y suelta imágenes aquí para subirlas</div>
+      <small id="dzLimit-image" class="muted"></small>
+    </div>
+
+    <details id="libraryBox-image" class="library">
+      <summary>
+        <span>🖼 Biblioteca de imágenes (<span id="libCount-image">0</span>)</span>
+        <span class="muted" id="libSelInfo-image">0 seleccionado(s)</span>
+      </summary>
+      <div class="lib-wrap">
+        <table class="lib-table">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="libSelectAll-image" title="Seleccionar todas" /></th>
+              <th>Nombre del archivo</th>
+            </tr>
+          </thead>
+          <tbody id="libBody-image"></tbody>
+        </table>
+        <div class="lib-empty muted" id="libEmpty-image">Aún no hay imágenes. Sube alguna con «Subir imagen».</div>
       </div>
     </details>
 
@@ -64,15 +92,37 @@
     const summaryEl = document.getElementById('summary');
     const clockEl = document.getElementById('clock');
 
-    let mediaCache = [];
+    // ---------------------- Configuración por tipo de medio ----------------------
+    // Generaliza videos e imágenes: misma maquinaria, distintos endpoints/claves.
+    const KINDS = {
+      video: {
+        label: 'video', labelPlural: 'videos',
+        re: /\.(mp4|webm|ogg|mov|mkv)$/i,
+        formats: 'mp4, webm, ogg, mov, mkv',
+        listEndpoint: '/api/admin/media', listKey: 'media',
+        uploadEndpoint: '/api/admin/media', uploadField: 'video',
+        saveEndpoint: '/api/admin/playlist', saveKey: 'videos',
+        deviceKey: 'playlist',
+      },
+      image: {
+        label: 'imagen', labelPlural: 'imágenes',
+        re: /\.(jpe?g|png|gif|webp|bmp)$/i,
+        formats: 'jpg, png, gif, webp, bmp',
+        listEndpoint: '/api/admin/images', listKey: 'images',
+        uploadEndpoint: '/api/admin/image', uploadField: 'image',
+        saveEndpoint: '/api/admin/image-playlist', saveKey: 'images',
+        deviceKey: 'images',
+      },
+    };
+
     let maxUploadMB = 0; // 0 = aún no conocido (se obtiene del servidor)
 
-    // Videos marcados en la biblioteca (para asignar a dispositivos).
-    const selectedMedia = new Set();
-    // Playlist en edición por dispositivo y marca de cambios sin guardar.
-    const localPlaylists = {};   // deviceId -> [archivo, ...]
-    const dirty = new Set();     // deviceIds con cambios sin guardar
-    let draggingActive = false;  // pausa el auto-refresco mientras se arrastra
+    // Estado por tipo: catálogo, selección, listas en edición y "sucios".
+    const mediaCache = { video: [], image: [] };
+    const selected = { video: new Set(), image: new Set() };
+    const localLists = { video: {}, image: {} };  // kind -> deviceId -> [archivo, ...]
+    const dirty = { video: new Set(), image: new Set() };
+    let draggingActive = false; // pausa el auto-refresco mientras se arrastra
 
     function esc(s) {
       return String(s).replace(/[&<>"']/g, (c) =>
@@ -88,57 +138,59 @@
       return d.toLocaleString('es');
     }
 
-    // ---------------------- Biblioteca de videos ----------------------
-    function renderLibrary() {
-      const body = document.getElementById('libBody');
-      const empty = document.getElementById('libEmpty');
-      document.getElementById('libCount').textContent = mediaCache.length;
+    // ---------------------- Biblioteca (genérica por tipo) ----------------------
+    function renderLibrary(kind) {
+      const body = document.getElementById(`libBody-${kind}`);
+      const empty = document.getElementById(`libEmpty-${kind}`);
+      const cache = mediaCache[kind];
+      document.getElementById(`libCount-${kind}`).textContent = cache.length;
 
       // Descarta de la selección los archivos que ya no existen.
-      [...selectedMedia].forEach((f) => { if (!mediaCache.includes(f)) selectedMedia.delete(f); });
+      [...selected[kind]].forEach((f) => { if (!cache.includes(f)) selected[kind].delete(f); });
 
-      if (!mediaCache.length) {
+      if (!cache.length) {
         body.innerHTML = '';
         empty.style.display = '';
-        updateLibInfo();
+        updateLibInfo(kind);
         return;
       }
       empty.style.display = 'none';
-      body.innerHTML = mediaCache.map((m) => `
+      body.innerHTML = cache.map((m) => `
         <tr data-file="${esc(m)}">
-          <td class="col-check"><input type="checkbox" class="lib-check" ${selectedMedia.has(m) ? 'checked' : ''} /></td>
+          <td class="col-check"><input type="checkbox" class="lib-check" ${selected[kind].has(m) ? 'checked' : ''} /></td>
           <td class="lib-name">${esc(m)}</td>
         </tr>`).join('');
-      updateLibInfo();
+      updateLibInfo(kind);
     }
 
-    function updateLibInfo() {
-      document.getElementById('libSelInfo').textContent = `${selectedMedia.size} seleccionado(s)`;
-      const all = document.getElementById('libSelectAll');
-      all.checked = mediaCache.length > 0 && selectedMedia.size === mediaCache.length;
-      all.indeterminate = selectedMedia.size > 0 && selectedMedia.size < mediaCache.length;
+    function updateLibInfo(kind) {
+      document.getElementById(`libSelInfo-${kind}`).textContent = `${selected[kind].size} seleccionado(s)`;
+      const all = document.getElementById(`libSelectAll-${kind}`);
+      all.checked = mediaCache[kind].length > 0 && selected[kind].size === mediaCache[kind].length;
+      all.indeterminate = selected[kind].size > 0 && selected[kind].size < mediaCache[kind].length;
     }
 
-    document.getElementById('libBody').addEventListener('change', (e) => {
-      if (!e.target.classList.contains('lib-check')) return;
-      const file = e.target.closest('tr').dataset.file;
-      if (e.target.checked) selectedMedia.add(file); else selectedMedia.delete(file);
-      updateLibInfo();
-    });
+    function setupLibrary(kind) {
+      document.getElementById(`libBody-${kind}`).addEventListener('change', (e) => {
+        if (!e.target.classList.contains('lib-check')) return;
+        const file = e.target.closest('tr').dataset.file;
+        if (e.target.checked) selected[kind].add(file); else selected[kind].delete(file);
+        updateLibInfo(kind);
+      });
+      document.getElementById(`libSelectAll-${kind}`).addEventListener('change', (e) => {
+        if (e.target.checked) mediaCache[kind].forEach((m) => selected[kind].add(m));
+        else selected[kind].clear();
+        renderLibrary(kind);
+      });
+    }
 
-    document.getElementById('libSelectAll').addEventListener('change', (e) => {
-      if (e.target.checked) mediaCache.forEach((m) => selectedMedia.add(m));
-      else selectedMedia.clear();
-      renderLibrary();
-    });
-
-    // ---------------------- Tarjetas de dispositivos ----------------------
+    // ---------------------- Items de lista (ordenable) ----------------------
     function plItemHTML(file) {
       return `<li class="pl-item" draggable="true" data-file="${esc(file)}">
         <span class="pl-handle" title="Arrastra para ordenar">⠿</span>
         <span class="pl-name">${esc(file)}</span>
-        <button class="pl-dup" title="Duplicar (repetir este video)">⧉</button>
-        <button class="pl-del" title="Quitar de la playlist">✕</button>
+        <button class="pl-dup" title="Duplicar (repetir)">⧉</button>
+        <button class="pl-del" title="Quitar de la lista">✕</button>
       </li>`;
     }
 
@@ -148,10 +200,27 @@
       return tpl.content.firstChild;
     }
 
+    // ---------------------- Tarjetas de dispositivos ----------------------
+    function sectionHTML(d, kind) {
+      const k = KINDS[kind];
+      const items = (d[`_${kind}`] || []).map(plItemHTML).join('');
+      const titulo = kind === 'video' ? 'Videos (playlist)' : 'Imágenes (slider)';
+      return `
+        <div class="media-section" data-kind="${kind}">
+          <label class="muted">${titulo} · arrastra para ordenar · ⧉ duplicar · ✕ quitar</label>
+          <ul class="playlist-list" data-kind="${kind}" data-id="${esc(d.id)}">${items}</ul>
+          <div class="pl-empty muted">Sin ${k.labelPlural}. Selecciónalos arriba y pulsa «Añadir seleccionados».</div>
+          <div class="card-actions">
+            <button class="btn ghost small addsel">➕ Añadir seleccionados</button>
+            <button class="btn small save">Guardar</button>
+            <span class="save-hint"></span>
+          </div>
+        </div>`;
+    }
+
     function cardHTML(d) {
       const statusCls = d.online ? 'online' : 'offline';
       const statusTxt = d.online ? 'En Línea' : 'Fuera de Línea';
-      const items = (d._playlist || []).map(plItemHTML).join('');
       return `
         <div class="card" data-id="${esc(d.id)}">
           <div class="card-head">
@@ -165,33 +234,29 @@
             <span class="status ${statusCls}"><span class="led"></span>${statusTxt}</span>
           </div>
 
-          <label class="muted">Playlist (arrastra para ordenar · ⧉ duplicar · ✕ quitar)</label>
-          <ul class="playlist-list" data-id="${esc(d.id)}">${items}</ul>
-          <div class="pl-empty muted">Sin videos. Selecciónalos arriba y pulsa «Añadir seleccionados».</div>
+          ${sectionHTML(d, 'video')}
+          ${sectionHTML(d, 'image')}
 
-          <div class="card-actions">
-            <button class="btn ghost small addsel">➕ Añadir seleccionados</button>
-            <button class="btn small save">Guardar orden</button>
+          <div class="card-actions card-bottom">
             <button class="btn ghost small rename">Renombrar</button>
             <button class="btn danger small del">Eliminar</button>
-            <span class="save-hint"></span>
           </div>
         </div>`;
     }
 
-    function playlistFromDOM(list) {
+    function listFromDOM(list) {
       return [...list.querySelectorAll('.pl-item')].map((li) => li.dataset.file);
     }
 
     function toggleEmpty(list) {
-      const empty = list.closest('.card').querySelector('.pl-empty');
+      const empty = list.closest('.media-section').querySelector('.pl-empty');
       if (empty) empty.style.display = list.children.length ? 'none' : '';
     }
 
     // Sincroniza el estado local desde el DOM y marca el dispositivo como editado.
-    function syncLocal(id, list) {
-      localPlaylists[id] = playlistFromDOM(list);
-      dirty.add(id);
+    function syncLocal(kind, id, list) {
+      localLists[kind][id] = listFromDOM(list);
+      dirty[kind].add(id);
       toggleEmpty(list);
     }
 
@@ -206,6 +271,7 @@
     }
 
     function attachDnD(list) {
+      const kind = list.dataset.kind;
       list.addEventListener('dragstart', (e) => {
         const li = e.target.closest('.pl-item');
         if (!li) return;
@@ -218,7 +284,7 @@
         const li = e.target.closest('.pl-item');
         if (li) li.classList.remove('dragging');
         draggingActive = false;
-        syncLocal(list.dataset.id, list);
+        syncLocal(kind, list.dataset.id, list);
       });
       list.addEventListener('dragover', (e) => {
         e.preventDefault();
@@ -230,19 +296,19 @@
       });
     }
 
-    async function loadMedia() {
+    // ---------------------- Carga de datos ----------------------
+    async function loadMedia(kind) {
       try {
-        const res = await fetch('/api/admin/media');
-        if (res.ok) {
-          const data = await res.json();
-          mediaCache = data.media || [];
-          maxUploadMB = data.maxUploadMB || 0;
-          const lbl = document.getElementById('dzLimit');
-          if (lbl) lbl.textContent = maxUploadMB
-            ? `Formatos: mp4, webm, ogg, mov, mkv · Máx. ${maxUploadMB} MB por archivo`
-            : 'Formatos: mp4, webm, ogg, mov, mkv';
-          renderLibrary();
-        }
+        const res = await fetch(KINDS[kind].listEndpoint);
+        if (!res.ok) return;
+        const data = await res.json();
+        mediaCache[kind] = data[KINDS[kind].listKey] || [];
+        if (data.maxUploadMB) maxUploadMB = data.maxUploadMB;
+        const lbl = document.getElementById(`dzLimit-${kind}`);
+        if (lbl) lbl.textContent = maxUploadMB
+          ? `Formatos: ${KINDS[kind].formats} · Máx. ${maxUploadMB} MB por archivo`
+          : `Formatos: ${KINDS[kind].formats}`;
+        renderLibrary(kind);
       } catch {}
     }
 
@@ -257,15 +323,19 @@
 
       // Limpia estado local de dispositivos que ya no existen.
       const ids = new Set(devices.map((d) => d.id));
-      Object.keys(localPlaylists).forEach((k) => {
-        if (!ids.has(k)) { delete localPlaylists[k]; dirty.delete(k); }
+      ['video', 'image'].forEach((kind) => {
+        Object.keys(localLists[kind]).forEach((k) => {
+          if (!ids.has(k)) { delete localLists[kind][k]; dirty[kind].delete(k); }
+        });
       });
 
-      // Para cada dispositivo: si tiene cambios sin guardar, conserva la edición
-      // local; si no, refresca desde el servidor.
+      // Para cada dispositivo y tipo: conserva la edición local si hay cambios sin
+      // guardar; si no, refresca desde el servidor.
       devices.forEach((d) => {
-        if (!dirty.has(d.id)) localPlaylists[d.id] = (d.playlist || []).slice();
-        d._playlist = localPlaylists[d.id] || [];
+        ['video', 'image'].forEach((kind) => {
+          if (!dirty[kind].has(d.id)) localLists[kind][d.id] = (d[KINDS[kind].deviceKey] || []).slice();
+          d[`_${kind}`] = localLists[kind][d.id] || [];
+        });
       });
 
       if (!devices.length) {
@@ -282,71 +352,80 @@
       });
     }
 
-    // ---- Eventos delegados de las tarjetas ----
+    // ---------------------- Eventos delegados de las tarjetas ----------------------
     cardsEl.addEventListener('click', async (e) => {
       const card = e.target.closest('.card');
       if (!card) return;
       const id = card.dataset.id;
-      const list = card.querySelector('.playlist-list');
-      const hint = card.querySelector('.save-hint');
 
-      // Quitar un video de la playlist.
+      // Quitar un item de su lista.
       if (e.target.classList.contains('pl-del')) {
+        const list = e.target.closest('.playlist-list');
         e.target.closest('.pl-item').remove();
-        syncLocal(id, list);
+        syncLocal(list.dataset.kind, id, list);
         return;
       }
 
-      // Duplicar un video (insertar una copia justo debajo) para poder repetirlo,
-      // p. ej. intercalar un spot entre otros videos. Luego se arrastra a su sitio.
+      // Duplicar un item (insertar copia justo debajo) para poder repetirlo.
       if (e.target.classList.contains('pl-dup')) {
+        const list = e.target.closest('.playlist-list');
         const li = e.target.closest('.pl-item');
         li.after(makeItem(li.dataset.file));
-        syncLocal(id, list);
+        syncLocal(list.dataset.kind, id, list);
         return;
       }
 
-      // Añadir los videos seleccionados en la biblioteca a esta playlist.
-      if (e.target.classList.contains('addsel')) {
-        if (!selectedMedia.size) {
-          hint.textContent = 'Marca videos en la biblioteca primero';
+      // Acciones por sección (video o imagen).
+      const section = e.target.closest('.media-section');
+      if (section) {
+        const kind = section.dataset.kind;
+        const list = section.querySelector('.playlist-list');
+        const hint = section.querySelector('.save-hint');
+
+        // Añadir los archivos seleccionados de la biblioteca a esta lista.
+        if (e.target.classList.contains('addsel')) {
+          if (!selected[kind].size) {
+            hint.textContent = `Marca ${KINDS[kind].labelPlural} en la biblioteca primero`;
+            hint.className = 'save-hint';
+            setTimeout(() => (hint.textContent = ''), 2500);
+            return;
+          }
+          const present = new Set(listFromDOM(list));
+          let added = 0;
+          selected[kind].forEach((file) => {
+            if (!present.has(file)) { list.appendChild(makeItem(file)); added++; }
+          });
+          if (added) syncLocal(kind, id, list);
+          hint.textContent = added ? `+${added} añadido(s) · Guarda para aplicar` : 'Ya estaban en la lista';
           hint.className = 'save-hint';
           setTimeout(() => (hint.textContent = ''), 2500);
           return;
         }
-        const present = new Set(playlistFromDOM(list));
-        let added = 0;
-        selectedMedia.forEach((file) => {
-          if (!present.has(file)) { list.appendChild(makeItem(file)); added++; }
-        });
-        if (added) syncLocal(id, list);
-        hint.textContent = added ? `+${added} añadido(s) · Guarda para aplicar` : 'Ya estaban en la lista';
-        hint.className = 'save-hint';
-        setTimeout(() => (hint.textContent = ''), 2500);
-        return;
-      }
 
-      if (e.target.classList.contains('save')) {
-        const videos = playlistFromDOM(list);
-        hint.textContent = 'Guardando…';
-        hint.className = 'save-hint';
-        const res = await fetch('/api/admin/playlist', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ deviceId: id, videos }),
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => ({}));
-          localPlaylists[id] = Array.isArray(data.playlist) ? data.playlist : videos;
-          dirty.delete(id);
-          hint.textContent = '✔ Guardado';
-          hint.className = 'save-hint ok';
-        } else {
-          hint.textContent = '✖ Error';
-          hint.className = 'save-hint err';
+        // Guardar el orden de esta sección.
+        if (e.target.classList.contains('save')) {
+          const files = listFromDOM(list);
+          hint.textContent = 'Guardando…';
+          hint.className = 'save-hint';
+          const res = await fetch(KINDS[kind].saveEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId: id, [KINDS[kind].saveKey]: files }),
+          });
+          if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const saved = data[KINDS[kind].saveKey];
+            localLists[kind][id] = Array.isArray(saved) ? saved : files;
+            dirty[kind].delete(id);
+            hint.textContent = '✔ Guardado';
+            hint.className = 'save-hint ok';
+          } else {
+            hint.textContent = '✖ Error';
+            hint.className = 'save-hint err';
+          }
+          setTimeout(() => (hint.textContent = ''), 2500);
+          return;
         }
-        setTimeout(() => (hint.textContent = ''), 2500);
-        return;
       }
 
       if (e.target.classList.contains('rename')) {
@@ -363,10 +442,9 @@
       }
 
       if (e.target.classList.contains('del')) {
-        if (confirm('¿Eliminar este dispositivo y su playlist?')) {
+        if (confirm('¿Eliminar este dispositivo y sus listas?')) {
           await fetch('/api/admin/device/' + encodeURIComponent(id), { method: 'DELETE' });
-          dirty.delete(id);
-          delete localPlaylists[id];
+          ['video', 'image'].forEach((kind) => { dirty[kind].delete(id); delete localLists[kind][id]; });
           loadDevices();
         }
         return;
@@ -390,9 +468,8 @@
       location.href = '/login.html';
     });
 
-    // ---- Subida de videos con indicador de progreso (%) ----
+    // ---------------------- Subida (genérica) con progreso ----------------------
     const uploadPanel = document.getElementById('uploadPanel');
-    const fileInput = document.getElementById('fileInput');
 
     function humanSize(bytes) {
       if (bytes < 1024) return bytes + ' B';
@@ -402,7 +479,7 @@
     }
 
     // Sube un archivo via XHR para poder leer el progreso de carga.
-    function uploadOne(file) {
+    function uploadOne(kind, file) {
       return new Promise((resolve) => {
         const row = document.createElement('div');
         row.className = 'up-row';
@@ -427,10 +504,10 @@
         }
 
         const form = new FormData();
-        form.append('video', file);
+        form.append(KINDS[kind].uploadField, file);
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/admin/media');
+        xhr.open('POST', KINDS[kind].uploadEndpoint);
         xhr.withCredentials = true; // envia la cookie de sesion
 
         xhr.upload.addEventListener('progress', (e) => {
@@ -452,7 +529,6 @@
             row.classList.add('err');
             setTimeout(() => (location.href = '/login.html'), 1500);
           } else {
-            // Incluye el caso 413 (supera el límite) con el mensaje del servidor.
             pct.textContent = '✖ ' + (serverMsg || 'Error');
             row.classList.add('err');
           }
@@ -472,56 +548,54 @@
     }
 
     // Sube los archivos en serie y refresca el catálogo al terminar.
-    async function uploadFiles(files) {
-      for (const f of files) await uploadOne(f);
-      await loadMedia();
+    async function uploadFiles(kind, files) {
+      for (const f of files) await uploadOne(kind, f);
+      await loadMedia(kind);
       await loadDevices();
     }
 
-    document.getElementById('uploadBtn').addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files.length) uploadFiles(fileInput.files);
-      fileInput.value = ''; // permite volver a subir el mismo archivo
-    });
-
-    // ---- Drag & drop de subida ----
-    const dropzone = document.getElementById('dropzone');
-    const VIDEO_RE = /\.(mp4|webm|ogg|mov|mkv)$/i;
-
-    function onlyVideos(fileList) {
-      return [...fileList].filter((f) => VIDEO_RE.test(f.name) || (f.type || '').startsWith('video/'));
+    function filterByKind(kind, fileList, mimePrefix) {
+      return [...fileList].filter((f) => KINDS[kind].re.test(f.name) || (f.type || '').startsWith(mimePrefix));
     }
 
-    // La zona dedicada también permite hacer clic para abrir el selector.
-    dropzone.addEventListener('click', () => fileInput.click());
+    // Botón + input por tipo.
+    function setupUpload(kind, mimePrefix) {
+      const input = document.getElementById(`fileInput-${kind}`);
+      document.getElementById(`uploadBtn-${kind}`).addEventListener('click', () => input.click());
+      input.addEventListener('change', () => {
+        if (input.files.length) uploadFiles(kind, input.files);
+        input.value = ''; // permite volver a subir el mismo archivo
+      });
 
-    ['dragenter', 'dragover'].forEach((ev) =>
-      dropzone.addEventListener(ev, (e) => {
-        e.preventDefault();
-        dropzone.classList.add('dragover');
-      })
-    );
-    ['dragleave', 'dragend', 'drop'].forEach((ev) =>
-      dropzone.addEventListener(ev, (e) => {
-        e.preventDefault();
-        dropzone.classList.remove('dragover');
-      })
-    );
-    dropzone.addEventListener('drop', (e) => {
-      const files = onlyVideos(e.dataTransfer.files);
-      if (files.length) uploadFiles(files);
-    });
+      // Dropzone por tipo: clic abre el selector, soltar sube.
+      const dz = document.getElementById(`dropzone-${kind}`);
+      dz.addEventListener('click', () => input.click());
+      ['dragenter', 'dragover'].forEach((ev) =>
+        dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dragover'); }));
+      ['dragleave', 'dragend', 'drop'].forEach((ev) =>
+        dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('dragover'); }));
+      dz.addEventListener('drop', (e) => {
+        const files = filterByKind(kind, e.dataTransfer.files, mimePrefix);
+        if (files.length) uploadFiles(kind, files);
+      });
+    }
 
-    // Evita que el navegador abra el archivo si se suelta fuera de la zona.
+    // Evita que el navegador abra el archivo si se suelta fuera de las zonas.
     window.addEventListener('dragover', (e) => e.preventDefault());
     window.addEventListener('drop', (e) => e.preventDefault());
 
     function tick() { clockEl.textContent = new Date().toLocaleTimeString('es'); }
     setInterval(tick, 1000); tick();
 
-    // Carga inicial + auto-refresco del monitoreo.
+    // ---------------------- Inicialización ----------------------
+    setupLibrary('video');
+    setupLibrary('image');
+    setupUpload('video', 'video/');
+    setupUpload('image', 'image/');
+
     (async () => {
-      await loadMedia();
+      await loadMedia('video');
+      await loadMedia('image');
       await loadDevices();
       setInterval(loadDevices, 15000);
     })();
