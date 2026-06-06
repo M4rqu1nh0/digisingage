@@ -35,10 +35,12 @@ const MAX_UPLOAD_MB = parseInt(process.env.MAX_UPLOAD_MB || '500', 10);
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
 const MEDIA_DIR = path.join(__dirname, 'media');
+const IMAGES_DIR = path.join(__dirname, 'images');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// La carpeta de medios contiene los videos maestros que se distribuyen.
+// Carpetas de medios: videos maestros e imagenes del slider que se distribuyen.
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
+fs.mkdirSync(IMAGES_DIR, { recursive: true });
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -111,12 +113,13 @@ app.post('/api/heartbeat', (req, res) => {
     return res.status(400).json({ error: 'deviceId requerido' });
   }
   const ip = clientIp(req);
-  const playlist = dataLayer.heartbeat(deviceId, ip, nombre);
+  const { playlist, images } = dataLayer.heartbeat(deviceId, ip, nombre);
   res.json({
     ok: true,
     deviceId,
     serverTime: new Date().toISOString(),
     playlist,
+    images,
   });
 });
 
@@ -130,6 +133,19 @@ app.get('/download/:filename', (req, res) => {
   const filePath = path.join(MEDIA_DIR, safe);
   if (!filePath.startsWith(MEDIA_DIR) || !fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'Archivo no encontrado' });
+  }
+  res.download(filePath, safe);
+});
+
+/**
+ * GET /image/:filename
+ * Descarga de una imagen del slider desde la carpeta images/.
+ */
+app.get('/image/:filename', (req, res) => {
+  const safe = path.basename(req.params.filename); // evita path traversal
+  const filePath = path.join(IMAGES_DIR, safe);
+  if (!filePath.startsWith(IMAGES_DIR) || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Imagen no encontrada' });
   }
   res.download(filePath, safe);
 });
@@ -154,6 +170,21 @@ app.post('/api/admin/playlist', requireAuth, (req, res) => {
   const limpio = videos.map((v) => String(v).trim()).filter(Boolean);
   const playlist = dataLayer.savePlaylist(deviceId, limpio);
   res.json({ ok: true, deviceId, playlist });
+});
+
+/**
+ * POST /api/admin/imageplaylist
+ * Body: { deviceId: string, images: string[] }
+ * Reemplaza el orden completo de la playlist de imagenes del dispositivo.
+ */
+app.post('/api/admin/imageplaylist', requireAuth, (req, res) => {
+  const { deviceId, images } = req.body || {};
+  if (!deviceId || !Array.isArray(images)) {
+    return res.status(400).json({ error: 'deviceId e images[] requeridos' });
+  }
+  const limpio = images.map((v) => String(v).trim()).filter(Boolean);
+  const imagePlaylist = dataLayer.saveImagePlaylist(deviceId, limpio);
+  res.json({ ok: true, deviceId, images: imagePlaylist });
 });
 
 // POST /api/admin/device -> alta/renombrado manual de un dispositivo.
@@ -199,6 +230,35 @@ app.post('/api/admin/media', requireAuth, (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
     const safe = path.basename(req.file.originalname);
     const dest = path.join(MEDIA_DIR, safe);
+    fs.renameSync(req.file.path, dest); // conserva el nombre original
+    res.json({ ok: true, filename: safe });
+  });
+});
+
+// GET /api/admin/images -> lista de imagenes del slider + limite de subida.
+app.get('/api/admin/images', requireAuth, (req, res) => {
+  const files = fs
+    .readdirSync(IMAGES_DIR)
+    .filter((f) => /\.(jpe?g|png|gif|webp|bmp)$/i.test(f))
+    .sort();
+  res.json({ images: files, maxUploadMB: MAX_UPLOAD_MB });
+});
+
+// POST /api/admin/images -> subir una nueva imagen al servidor.
+const uploadImg = multer({ dest: IMAGES_DIR, limits: { fileSize: MAX_UPLOAD_BYTES } });
+app.post('/api/admin/images', requireAuth, (req, res) => {
+  uploadImg.single('image')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res
+          .status(413)
+          .json({ error: `El archivo supera el límite de ${MAX_UPLOAD_MB} MB` });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir' });
+    }
+    if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
+    const safe = path.basename(req.file.originalname);
+    const dest = path.join(IMAGES_DIR, safe);
     fs.renameSync(req.file.path, dest); // conserva el nombre original
     res.json({ ok: true, filename: safe });
   });
