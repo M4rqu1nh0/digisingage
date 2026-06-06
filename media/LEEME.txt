@@ -7,3 +7,11 @@ Estos archivos:
   - Tambien puedes subirlos desde el panel (boton de subida via API /api/admin/media).
 
 Formatos recomendados para <video> en Chrome: .mp4 (H.264/AAC) o .webm
+
+
+*95Z~b£IT0£w5u34!JR\O_,37Zne8$en
+
+JWT_EXPIRES       8h
+ONLINE_WINDOW_MIN 3
+MAX_UPLOAD_MB     500
+NODE_VERSION      20

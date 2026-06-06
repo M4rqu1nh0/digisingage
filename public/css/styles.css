@@ -179,6 +179,16 @@ textarea {
 textarea:focus { border-color: var(--accent); }
 
 .card-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* Secciones de medios dentro de la tarjeta (videos / imágenes) */
+.media-section + .media-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.section-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.section-actions .save-hint { margin-left: auto; }
+
 .save-hint { font-size: 12px; margin-left: auto; }
 .save-hint.ok { color: var(--green); }
 .save-hint.err { color: var(--red); }

@@ -14,6 +14,10 @@ media/*
 !media/.gitkeep
 !media/LEEME.txt
 
+# Imagenes del slider subidas desde el panel (no versionar binarios)
+images/*
+!images/.gitkeep
+
 # Logs y temporales
 *.log
 npm-debug.log*

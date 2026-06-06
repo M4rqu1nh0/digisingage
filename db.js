@@ -40,6 +40,17 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_playlists_disp
     ON playlists (dispositivo_id, orden);
+
+  CREATE TABLE IF NOT EXISTS image_playlists (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    dispositivo_id      TEXT NOT NULL,
+    imagen              TEXT NOT NULL,
+    orden               INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (dispositivo_id) REFERENCES dispositivos(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_image_playlists_disp
+    ON image_playlists (dispositivo_id, orden);
 `);
 
 // ----------------------- Sentencias preparadas -----------------------
@@ -78,6 +89,20 @@ const stmts = {
     INSERT INTO playlists (dispositivo_id, video_url_o_nombre, orden)
     VALUES (@dispositivo_id, @video, @orden)
   `),
+
+  getImagePlaylist: db.prepare(`
+    SELECT imagen, orden
+      FROM image_playlists
+     WHERE dispositivo_id = ?
+     ORDER BY orden ASC
+  `),
+
+  clearImagePlaylist: db.prepare('DELETE FROM image_playlists WHERE dispositivo_id = ?'),
+
+  insertImagePlaylistItem: db.prepare(`
+    INSERT INTO image_playlists (dispositivo_id, imagen, orden)
+    VALUES (@dispositivo_id, @imagen, @orden)
+  `),
 };
 
 // ----------------------------- API del modulo -----------------------------
@@ -85,6 +110,11 @@ const stmts = {
 /** Devuelve la lista ordenada de nombres de video de un dispositivo. */
 function getPlaylistArray(deviceId) {
   return stmts.getPlaylist.all(deviceId).map((r) => r.video_url_o_nombre);
+}
+
+/** Devuelve la lista ordenada de nombres de imagen de un dispositivo. */
+function getImagePlaylistArray(deviceId) {
+  return stmts.getImagePlaylist.all(deviceId).map((r) => r.imagen);
 }
 
 /**
@@ -106,7 +136,10 @@ const heartbeat = db.transaction((deviceId, ip, nombreSugerido) => {
     stmts.touchDevice.run({ id: deviceId, ultima_conexion: now, ip_actual: ip });
   }
 
-  return getPlaylistArray(deviceId);
+  return {
+    playlist: getPlaylistArray(deviceId),
+    images: getImagePlaylistArray(deviceId),
+  };
 });
 
 /** Reemplaza por completo la playlist de un dispositivo con el array dado. */
@@ -133,6 +166,30 @@ const savePlaylist = db.transaction((deviceId, videos) => {
   return getPlaylistArray(deviceId);
 });
 
+/** Reemplaza por completo la playlist de imagenes de un dispositivo. */
+const saveImagePlaylist = db.transaction((deviceId, imagenes) => {
+  // Garantiza que el dispositivo exista (alta manual desde el panel).
+  if (!stmts.getDevice.get(deviceId)) {
+    stmts.insertDevice.run({
+      id: deviceId,
+      nombre: `Dispositivo ${deviceId.slice(0, 8)}`,
+      ultima_conexion: null,
+      ip_actual: null,
+    });
+  }
+
+  stmts.clearImagePlaylist.run(deviceId);
+  imagenes.forEach((imagen, idx) => {
+    stmts.insertImagePlaylistItem.run({
+      dispositivo_id: deviceId,
+      imagen: String(imagen).trim(),
+      orden: idx,
+    });
+  });
+
+  return getImagePlaylistArray(deviceId);
+});
+
 /** Lista de dispositivos con su estado (online/offline) y su playlist. */
 function listDevicesWithStatus(onlineWindowMin) {
   const limitMs = onlineWindowMin * 60 * 1000;
@@ -148,6 +205,7 @@ function listDevicesWithStatus(onlineWindowMin) {
       ultima_conexion: d.ultima_conexion,
       online,
       playlist: getPlaylistArray(d.id),
+      images: getImagePlaylistArray(d.id),
     };
   });
 }
@@ -158,6 +216,7 @@ function renameDevice(deviceId, nombre) {
 
 function deleteDevice(deviceId) {
   stmts.clearPlaylist.run(deviceId);
+  stmts.clearImagePlaylist.run(deviceId);
   return stmts.deleteDevice.run(deviceId).changes > 0;
 }
 
@@ -169,7 +228,9 @@ module.exports = {
   db,
   heartbeat,
   savePlaylist,
+  saveImagePlaylist,
   getPlaylistArray,
+  getImagePlaylistArray,
   listDevicesWithStatus,
   renameDevice,
   deleteDevice,
