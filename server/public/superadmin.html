@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DigiSignage · Super-Admin</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> DigiSignage · Super-Admin</div>
+    <div class="right">
+      <span class="muted" id="whoami"></span>
+      <button class="btn ghost small" id="logoutBtn">Salir</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="toolbar">
+      <div>
+        <h2>Empresas</h2>
+        <div class="muted" id="summary">Cargando…</div>
+      </div>
+    </div>
+
+    <!-- Alta de empresa -->
+    <details class="library" open>
+      <summary><span>➕ Crear empresa</span></summary>
+      <div class="lib-wrap">
+        <form id="createForm" class="create-grid">
+          <div>
+            <label for="nombre">Nombre de la empresa</label>
+            <input type="text" id="nombre" required placeholder="Ej. Acme S.A." />
+          </div>
+          <div>
+            <label for="adminUser">Usuario admin inicial</label>
+            <input type="text" id="adminUser" required placeholder="admin" />
+          </div>
+          <div>
+            <label for="adminPass">Contraseña admin</label>
+            <input type="password" id="adminPass" required placeholder="••••••••" />
+          </div>
+          <div class="create-actions">
+            <button class="btn" type="submit">Crear empresa</button>
+            <span class="save-hint" id="createHint"></span>
+          </div>
+        </form>
+      </div>
+    </details>
+
+    <!-- Listado de empresas -->
+    <div class="library">
+      <div class="lib-wrap">
+        <table class="lib-table">
+          <thead>
+            <tr>
+              <th>Empresa</th>
+              <th>Pairing code</th>
+              <th>Pantallas</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="empBody"></tbody>
+        </table>
+        <div class="lib-empty muted" id="empEmpty">No hay empresas todavía.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const empBody = document.getElementById('empBody');
+    const empEmpty = document.getElementById('empEmpty');
+    const summary = document.getElementById('summary');
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // Verifica sesion y rol.
+    fetch('/api/me').then(async (r) => {
+      if (!r.ok) { location.href = '/login.html'; return; }
+      const me = await r.json();
+      if (me.rol !== 'super_admin') { location.href = '/dashboard.html'; return; }
+      document.getElementById('whoami').textContent = me.usuario;
+      loadEmpresas();
+    });
+
+    async function loadEmpresas() {
+      const res = await fetch('/api/super/empresas');
+      if (res.status === 401) { location.href = '/login.html'; return; }
+      const { empresas } = await res.json();
+
+      const activas = empresas.filter((e) => e.activa).length;
+      summary.textContent = `${empresas.length} empresa(s) · ${activas} activa(s)`;
+
+      if (!empresas.length) { empBody.innerHTML = ''; empEmpty.style.display = ''; return; }
+      empEmpty.style.display = 'none';
+      empBody.innerHTML = empresas.map((e) => `
+        <tr data-id="${esc(e.id)}">
+          <td>${esc(e.nombre)}</td>
+          <td><code class="pcode">${esc(e.pairing_code)}</code>
+              <button class="btn ghost small rotate" title="Regenerar código">↻</button></td>
+          <td>${e.dispositivos}</td>
+          <td>
+            <span class="status ${e.activa ? 'online' : 'offline'}">
+              <span class="led"></span>${e.activa ? 'Activa' : 'Inactiva'}
+            </span>
+          </td>
+          <td>
+            <button class="btn ghost small toggle">${e.activa ? 'Desactivar' : 'Activar'}</button>
+          </td>
+        </tr>`).join('');
+    }
+
+    // Crear empresa.
+    document.getElementById('createForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const hint = document.getElementById('createHint');
+      const nombre = document.getElementById('nombre').value.trim();
+      const adminUser = document.getElementById('adminUser').value.trim();
+      const adminPass = document.getElementById('adminPass').value;
+      hint.textContent = 'Creando…'; hint.className = 'save-hint';
+
+      const res = await fetch('/api/super/empresas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, adminUser, adminPass }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        hint.textContent = `✔ Creada · Pairing code: ${data.empresa.pairing_code}`;
+        hint.className = 'save-hint ok';
+        e.target.reset();
+        loadEmpresas();
+      } else {
+        hint.textContent = '✖ ' + (data.error || 'Error');
+        hint.className = 'save-hint err';
+      }
+    });
+
+    // Acciones de la tabla (delegadas).
+    empBody.addEventListener('click', async (e) => {
+      const tr = e.target.closest('tr');
+      if (!tr) return;
+      const id = tr.dataset.id;
+
+      if (e.target.classList.contains('rotate')) {
+        if (!confirm('¿Regenerar el pairing code? Las pantallas nuevas deberán usar el nuevo código.')) return;
+        const res = await fetch(`/api/super/empresas/${encodeURIComponent(id)}/rotate-code`, { method: 'POST' });
+        if (res.ok) loadEmpresas();
+        return;
+      }
+
+      if (e.target.classList.contains('toggle')) {
+        const activar = e.target.textContent.trim() === 'Activar';
+        await fetch(`/api/super/empresas/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activa: activar }),
+        });
+        loadEmpresas();
+      }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      location.href = '/login.html';
+    });
+  </script>
+</body>
+</html>

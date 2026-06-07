@@ -1,0 +1,8 @@
+{
+  "serverUrl": "http://localhost:4000",
+  "deviceName": "CAMBIAR-nombre-del-dispositivo",
+  "pairingCode": "CAMBIAR-codigo-de-emparejamiento-de-tu-empresa",
+  "heartbeatSeconds": 60,
+  "imageSeconds": 6,
+  "weather": { "lat": null, "lon": null, "city": "Valparaíso, Chile" }
+}

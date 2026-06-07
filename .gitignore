@@ -1,25 +1,25 @@
-# Dependencias (se reinstalan en el servidor; better-sqlite3 se recompila)
+# Dependencias
 node_modules/
 
-# Secretos / configuracion local
-.env
+# Configuración con secretos
+server/.env
 
-# Base de datos SQLite (datos de produccion, no versionar)
-signage.db
-signage.db-wal
-signage.db-shm
+# Base de datos SQLite (se regenera)
+server/signage.db
+server/signage.db-wal
+server/signage.db-shm
 
-# Videos maestros subidos desde el panel (no versionar binarios grandes)
-media/*
-!media/.gitkeep
-!media/LEEME.txt
+# Videos maestros (suelen ser pesados; gestionar aparte)
+server/media/*.mp4
+server/media/*.webm
+server/media/*.mov
+server/media/*.mkv
 
-# Imagenes del slider subidas desde el panel (no versionar binarios)
-images/*
-!images/.gitkeep
+# Artefactos del cliente
+client/videos/
+client/current_playlist.json
+client/chrome-profile/
+client/config.json
 
-# Logs y temporales
-*.log
-npm-debug.log*
-.DS_Store
-Thumbs.db
+# Ajustes locales de Claude Code (no versionar)
+.claude/settings.local.json

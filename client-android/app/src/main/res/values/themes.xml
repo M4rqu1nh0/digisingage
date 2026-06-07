@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Tema base de la app. -->
+    <style name="Theme.DigiSignage" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <!-- Pantalla completa sin barras, fondo negro, para el reproductor. -->
+    <style name="Theme.DigiSignage.Fullscreen" parent="Theme.DigiSignage">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+
+</resources>

@@ -29,6 +29,9 @@
       <div class="muted">Se actualiza cada 15&nbsp;s · Verde = activo en últimos 3&nbsp;min</div>
     </div>
 
+    <!-- Datos de la empresa: el pairing code se usa para vincular pantallas nuevas. -->
+    <div class="empresa-bar" id="empresaBar"></div>
+
     <div id="dropzone" class="dropzone">
       <div class="dz-icon">⬆</div>
       <div>Arrastra y suelta videos o imágenes aquí para subirlos</div>
@@ -75,6 +78,40 @@
           <tbody id="imgLibBody"></tbody>
         </table>
         <div class="lib-empty muted" id="imgLibEmpty">Aún no hay imágenes. Sube alguna con «Subir imagen».</div>
+      </div>
+    </details>
+
+    <!-- Gestión de usuarios de la empresa (solo visible para rol admin). -->
+    <details id="usersBox" class="library" hidden>
+      <summary><span>👥 Usuarios de la empresa (<span id="usersCount">0</span>)</span></summary>
+      <div class="lib-wrap">
+        <form id="userForm" class="create-grid">
+          <div>
+            <label for="newUser">Usuario</label>
+            <input type="text" id="newUser" required placeholder="nombre.usuario" />
+          </div>
+          <div>
+            <label for="newPass">Contraseña</label>
+            <input type="password" id="newPass" required placeholder="••••••••" />
+          </div>
+          <div>
+            <label for="newRol">Rol</label>
+            <select id="newRol">
+              <option value="operador">Operador</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="create-actions">
+            <button class="btn" type="submit">Añadir usuario</button>
+            <span class="save-hint" id="userHint"></span>
+          </div>
+        </form>
+        <table class="lib-table" style="margin-top:14px">
+          <thead>
+            <tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
       </div>
     </details>
 
@@ -594,8 +631,102 @@
     function tick() { clockEl.textContent = new Date().toLocaleTimeString('es'); }
     setInterval(tick, 1000); tick();
 
+    // ---------------------- Sesión / Empresa / Usuarios ----------------------
+    let currentRol = null;
+
+    // Verifica la sesión y redirige a super-admins al panel que les corresponde.
+    async function checkSession() {
+      const res = await fetch('/api/me');
+      if (!res.ok) { location.href = '/login.html'; return false; }
+      const me = await res.json();
+      if (me.rol === 'super_admin') { location.href = '/superadmin.html'; return false; }
+      currentRol = me.rol;
+      return true;
+    }
+
+    // Barra de empresa: muestra el pairing code (para vincular pantallas nuevas).
+    async function loadEmpresaInfo() {
+      const bar = document.getElementById('empresaBar');
+      try {
+        const res = await fetch('/api/admin/empresa');
+        if (!res.ok) return;
+        const e = await res.json();
+        bar.innerHTML = `
+          <span>Empresa: <strong>${esc(e.nombre)}</strong></span>
+          <span>· Código para vincular pantallas:
+            <code class="pcode">${esc(e.pairing_code)}</code>
+            <button class="btn ghost small" id="copyCode">Copiar</button>
+          </span>`;
+        document.getElementById('copyCode').addEventListener('click', () => {
+          navigator.clipboard?.writeText(e.pairing_code);
+          const b = document.getElementById('copyCode');
+          b.textContent = '✔ Copiado';
+          setTimeout(() => (b.textContent = 'Copiar'), 1500);
+        });
+      } catch {}
+    }
+
+    // Usuarios (solo admin): listar/crear/activar/eliminar.
+    async function loadUsers() {
+      if (currentRol !== 'admin') return;
+      document.getElementById('usersBox').hidden = false;
+      const res = await fetch('/api/admin/users');
+      if (!res.ok) return;
+      const { users } = await res.json();
+      document.getElementById('usersCount').textContent = users.length;
+      document.getElementById('usersBody').innerHTML = users.map((u) => `
+        <tr data-id="${esc(u.id)}">
+          <td>${esc(u.usuario)}</td>
+          <td>${esc(u.rol)}</td>
+          <td><span class="status ${u.activo ? 'online' : 'offline'}"><span class="led"></span>${u.activo ? 'Activo' : 'Inactivo'}</span></td>
+          <td>
+            <button class="btn ghost small utoggle">${u.activo ? 'Desactivar' : 'Activar'}</button>
+            <button class="btn danger small udel">Eliminar</button>
+          </td>
+        </tr>`).join('');
+    }
+
+    document.getElementById('userForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const hint = document.getElementById('userHint');
+      const usuario = document.getElementById('newUser').value.trim();
+      const password = document.getElementById('newPass').value;
+      const rol = document.getElementById('newRol').value;
+      hint.textContent = 'Creando…'; hint.className = 'save-hint';
+      const res = await fetch('/api/admin/users', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario, password, rol }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) { hint.textContent = '✔ Creado'; hint.className = 'save-hint ok'; e.target.reset(); loadUsers(); }
+      else { hint.textContent = '✖ ' + (data.error || 'Error'); hint.className = 'save-hint err'; }
+      setTimeout(() => (hint.textContent = ''), 3000);
+    });
+
+    document.getElementById('usersBody').addEventListener('click', async (e) => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.classList.contains('utoggle')) {
+        const activar = e.target.textContent.trim() === 'Activar';
+        await fetch('/api/admin/users/' + encodeURIComponent(id), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activo: activar }),
+        });
+        loadUsers();
+      }
+      if (e.target.classList.contains('udel')) {
+        if (confirm('¿Eliminar este usuario?')) {
+          await fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' });
+          loadUsers();
+        }
+      }
+    });
+
     // Carga inicial + auto-refresco del monitoreo.
     (async () => {
+      if (!(await checkSession())) return;
+      await loadEmpresaInfo();
+      await loadUsers();
       await loadMedia();
       await loadImages();
       await loadDevices();

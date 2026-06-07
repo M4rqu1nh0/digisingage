@@ -10,7 +10,12 @@
   <div class="login-wrap">
     <form class="login-card" id="loginForm">
       <div class="brand"><span class="dot"></span> DigiSignage</div>
-      <div class="subtitle">Panel de Administración Central</div>
+      <div class="subtitle">Panel de Administración</div>
+
+      <label for="empresa">Empresa</label>
+      <input type="text" id="empresa" autocomplete="organization"
+             placeholder="Nombre de tu empresa" />
+      <small class="muted">Los super-administradores dejan este campo vacío.</small>
 
       <label for="usuario">Usuario</label>
       <input type="text" id="usuario" autocomplete="username" required autofocus />
@@ -27,12 +32,23 @@
     const form = document.getElementById('loginForm');
     const errorBox = document.getElementById('error');
 
-    // Si ya hay sesion activa, ir directo al dashboard.
-    fetch('/api/me').then((r) => { if (r.ok) location.href = '/dashboard.html'; });
+    // Destino segun el rol del usuario.
+    function destinoPorRol(rol) {
+      return rol === 'super_admin' ? '/superadmin.html' : '/dashboard.html';
+    }
+
+    // Si ya hay sesion activa, ir directo al panel correspondiente.
+    fetch('/api/me').then(async (r) => {
+      if (r.ok) {
+        const me = await r.json().catch(() => ({}));
+        location.href = destinoPorRol(me.rol);
+      }
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       errorBox.classList.remove('show');
+      const empresa = document.getElementById('empresa').value.trim();
       const usuario = document.getElementById('usuario').value.trim();
       const password = document.getElementById('password').value;
 
@@ -40,10 +56,11 @@
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usuario, password }),
+          body: JSON.stringify({ empresa, usuario, password }),
         });
         if (res.ok) {
-          location.href = '/dashboard.html';
+          const data = await res.json().catch(() => ({}));
+          location.href = destinoPorRol(data.rol);
         } else {
           const data = await res.json().catch(() => ({}));
           errorBox.textContent = data.error || 'No se pudo iniciar sesión';

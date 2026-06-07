@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DigiSignage</string>
+    <string name="sync_channel_name">Sincronización</string>
+    <string name="sync_notification_title">DigiSignage activo</string>
+    <string name="sync_notification_text">Sincronizando contenido…</string>
+</resources>
