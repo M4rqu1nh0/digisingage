@@ -76,6 +76,9 @@ function loadConfig() {
     serverUrl: (cfg.serverUrl || 'http://localhost:4000').trim().replace(/\/$/, ''),
     deviceId: cfg.deviceId,
     deviceName: cfg.deviceName || os.hostname(),
+    // Codigo de emparejamiento de la empresa (multi-tenant): se envia en el
+    // primer heartbeat para vincular esta pantalla a su empresa.
+    pairingCode: String(cfg.pairingCode || '').trim(),
     heartbeatSeconds: Number(cfg.heartbeatSeconds) || 60,
     imageSeconds: Number(cfg.imageSeconds) || 6,
     weather: (cfg.weather && typeof cfg.weather === 'object')
@@ -224,7 +227,7 @@ async function tick() {
   try {
     const res = await postJson(
       `${config.serverUrl}/api/heartbeat`,
-      { deviceId: config.deviceId, nombre: config.deviceName },
+      { deviceId: config.deviceId, nombre: config.deviceName, pairingCode: config.pairingCode },
       15000
     );
     const playlist = Array.isArray(res.playlist) ? res.playlist : [];
@@ -237,7 +240,7 @@ async function tick() {
     } else {
       log('[heartbeat] OK · videos:', JSON.stringify(playlist));
       lastPlaylist = await syncMedia(playlist, VIDEOS_DIR, VIDEO_RE,
-        (n) => `${config.serverUrl}/download/${encodeURIComponent(n)}`);
+        (n) => `${config.serverUrl}/download/${encodeURIComponent(n)}?deviceId=${encodeURIComponent(config.deviceId)}`);
       sendChannel('playlist', lastPlaylist);
       log('[sync] Videos disponibles:', JSON.stringify(lastPlaylist));
     }
@@ -246,7 +249,7 @@ async function tick() {
       log('[heartbeat] OK · imagenes vacias -> se conserva lo local');
     } else {
       lastImages = await syncMedia(images, IMAGES_DIR, IMAGE_RE,
-        (n) => `${config.serverUrl}/image/${encodeURIComponent(n)}`);
+        (n) => `${config.serverUrl}/image/${encodeURIComponent(n)}?deviceId=${encodeURIComponent(config.deviceId)}`);
       sendChannel('images', lastImages);
       log('[sync] Imagenes disponibles:', JSON.stringify(lastImages));
     }

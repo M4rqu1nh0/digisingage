@@ -73,7 +73,7 @@ class SyncService : Service() {
     /** Un ciclo de heartbeat + sincronización de videos e imágenes. */
     private fun tick() {
         try {
-            val hb = Sync.heartbeat(cfg.serverUrl, cfg.deviceId, cfg.deviceName)
+            val hb = Sync.heartbeat(cfg.serverUrl, cfg.deviceId, cfg.deviceName, cfg.pairingCode)
 
             // Lista vacía = "sin actualización": NO se borra lo local (igual que main.js).
             if (hb.playlist.isEmpty()) {
@@ -82,7 +82,7 @@ class SyncService : Service() {
                 Log.i(TAG, "[heartbeat] OK · videos: ${hb.playlist}")
                 val available = Sync.syncMedia(
                     hb.playlist, Config.videosDir(this), Sync.videoRegex()
-                ) { n -> "${cfg.serverUrl}/download/${enc(n)}" }
+                ) { n -> "${cfg.serverUrl}/download/${enc(n)}?deviceId=${enc(cfg.deviceId)}" }
                 SignageState.emit("playlist", JSONArray(available).toString())
                 Log.i(TAG, "[sync] Videos disponibles: $available")
             }
@@ -92,7 +92,7 @@ class SyncService : Service() {
             } else {
                 val available = Sync.syncMedia(
                     hb.images, Config.imagesDir(this), Sync.imageRegex()
-                ) { n -> "${cfg.serverUrl}/image/${enc(n)}" }
+                ) { n -> "${cfg.serverUrl}/image/${enc(n)}?deviceId=${enc(cfg.deviceId)}" }
                 SignageState.emit("images", JSONArray(available).toString())
                 Log.i(TAG, "[sync] Imagenes disponibles: $available")
             }

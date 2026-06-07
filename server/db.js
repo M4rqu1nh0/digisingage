@@ -7,15 +7,23 @@
  * callbacks ni promesas) y es mas que suficiente para la carga de un
  * sistema de carteleria con decenas/cientos de dispositivos.
  *
- * Esquema:
- *   dispositivos(id, nombre, ultima_conexion, ip_actual)
- *   playlists(id, dispositivo_id, video_url_o_nombre, orden)
+ * MULTI-TENANT:
+ *   empresas(id, nombre, pairing_code, activa, created_at)
+ *   usuarios(id, empresa_id, usuario, password_hash, rol, activo, created_at)
+ *   dispositivos(id, empresa_id, nombre, ultima_conexion, ip_actual)
+ *   playlists(id, dispositivo_id, video_url_o_nombre, orden)        -- acotado via dispositivo
+ *   image_playlists(id, dispositivo_id, imagen, orden)              -- acotado via dispositivo
+ *
+ * Cada empresa administra de forma privada sus dispositivos, medios y usuarios.
+ * El aislamiento se aplica SIEMPRE filtrando por empresa_id en la capa de datos.
  */
 
 const path = require('path');
+const crypto = require('crypto');
 const Database = require('better-sqlite3');
 
-const DB_PATH = path.join(__dirname, 'signage.db');
+// Ruta configurable (util para tests y para un disco persistente en Render).
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'signage.db');
 const db = new Database(DB_PATH);
 
 // WAL mejora la concurrencia lectura/escritura (muchos heartbeats simultaneos).
@@ -23,6 +31,29 @@ db.pragma('journal_mode = WAL');
 
 // --- Creacion del esquema (idempotente) ---
 db.exec(`
+  CREATE TABLE IF NOT EXISTS empresas (
+    id            TEXT PRIMARY KEY,
+    nombre        TEXT NOT NULL,
+    pairing_code  TEXT NOT NULL UNIQUE,
+    activa        INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL
+  );
+
+  -- Nombre unico (case-insensitive): permite identificar la empresa en el login.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_empresas_nombre
+    ON empresas (nombre COLLATE NOCASE);
+
+  CREATE TABLE IF NOT EXISTS usuarios (
+    id            TEXT PRIMARY KEY,
+    empresa_id    TEXT,                    -- NULL solo para super_admin
+    usuario       TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    rol           TEXT NOT NULL,           -- 'super_admin' | 'admin' | 'operador'
+    activo        INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL,
+    UNIQUE (empresa_id, usuario)
+  );
+
   CREATE TABLE IF NOT EXISTS dispositivos (
     id               TEXT PRIMARY KEY,
     nombre           TEXT NOT NULL DEFAULT 'Sin nombre',
@@ -53,14 +84,79 @@ db.exec(`
     ON image_playlists (dispositivo_id, orden);
 `);
 
+// --- Migracion: anade empresa_id a dispositivos si la BD es antigua ---
+const dispCols = db.prepare('PRAGMA table_info(dispositivos)').all();
+if (!dispCols.some((c) => c.name === 'empresa_id')) {
+  db.exec('ALTER TABLE dispositivos ADD COLUMN empresa_id TEXT');
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_dispositivos_empresa ON dispositivos (empresa_id)');
+
+// ----------------------------- Hashing (scrypt) -----------------------------
+// Sin dependencias nativas: usamos crypto.scrypt (incluido en Node).
+
+function hashPassword(plain) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const dk = crypto.scryptSync(String(plain), salt, 64).toString('hex');
+  return `${salt}:${dk}`;
+}
+
+function verifyPassword(plain, stored) {
+  if (!stored || !stored.includes(':')) return false;
+  const [salt, key] = stored.split(':');
+  const keyBuf = Buffer.from(key, 'hex');
+  const dk = crypto.scryptSync(String(plain), salt, 64);
+  return keyBuf.length === dk.length && crypto.timingSafeEqual(keyBuf, dk);
+}
+
+// Codigo de emparejamiento legible (sin caracteres ambiguos), unico.
+function genPairingCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(8);
+  let s = '';
+  for (let i = 0; i < 8; i++) s += alphabet[bytes[i] % alphabet.length];
+  return s;
+}
+
 // ----------------------- Sentencias preparadas -----------------------
 
 const stmts = {
+  // --- Empresas ---
+  insertEmpresa: db.prepare(`
+    INSERT INTO empresas (id, nombre, pairing_code, activa, created_at)
+    VALUES (@id, @nombre, @pairing_code, 1, @created_at)
+  `),
+  getEmpresa: db.prepare('SELECT * FROM empresas WHERE id = ?'),
+  getEmpresaByCode: db.prepare('SELECT * FROM empresas WHERE pairing_code = ?'),
+  getEmpresaByNombre: db.prepare('SELECT * FROM empresas WHERE nombre = ? COLLATE NOCASE'),
+  listEmpresas: db.prepare('SELECT * FROM empresas ORDER BY nombre COLLATE NOCASE'),
+  updateEmpresaCode: db.prepare('UPDATE empresas SET pairing_code = ? WHERE id = ?'),
+  updateEmpresaActiva: db.prepare('UPDATE empresas SET activa = ? WHERE id = ?'),
+
+  // --- Usuarios ---
+  insertUser: db.prepare(`
+    INSERT INTO usuarios (id, empresa_id, usuario, password_hash, rol, activo, created_at)
+    VALUES (@id, @empresa_id, @usuario, @password_hash, @rol, 1, @created_at)
+  `),
+  getUserById: db.prepare('SELECT * FROM usuarios WHERE id = ?'),
+  getUserByLogin: db.prepare(
+    'SELECT * FROM usuarios WHERE empresa_id = ? AND usuario = ? COLLATE NOCASE'
+  ),
+  getSuperByLogin: db.prepare(
+    "SELECT * FROM usuarios WHERE empresa_id IS NULL AND rol = 'super_admin' AND usuario = ? COLLATE NOCASE"
+  ),
+  countSuper: db.prepare("SELECT COUNT(*) AS n FROM usuarios WHERE rol = 'super_admin'"),
+  listUsersByEmpresa: db.prepare(
+    'SELECT id, empresa_id, usuario, rol, activo, created_at FROM usuarios WHERE empresa_id = ? ORDER BY usuario COLLATE NOCASE'
+  ),
+  setUserActivo: db.prepare('UPDATE usuarios SET activo = ? WHERE id = ? AND empresa_id = ?'),
+  deleteUserStmt: db.prepare('DELETE FROM usuarios WHERE id = ? AND empresa_id = ?'),
+
+  // --- Dispositivos ---
   getDevice: db.prepare('SELECT * FROM dispositivos WHERE id = ?'),
 
   insertDevice: db.prepare(`
-    INSERT INTO dispositivos (id, nombre, ultima_conexion, ip_actual)
-    VALUES (@id, @nombre, @ultima_conexion, @ip_actual)
+    INSERT INTO dispositivos (id, empresa_id, nombre, ultima_conexion, ip_actual)
+    VALUES (@id, @empresa_id, @nombre, @ultima_conexion, @ip_actual)
   `),
 
   touchDevice: db.prepare(`
@@ -70,21 +166,26 @@ const stmts = {
      WHERE id = @id
   `),
 
-  renameDevice: db.prepare('UPDATE dispositivos SET nombre = ? WHERE id = ?'),
+  renameDevice: db.prepare('UPDATE dispositivos SET nombre = ? WHERE id = ? AND empresa_id = ?'),
 
-  listDevices: db.prepare('SELECT * FROM dispositivos ORDER BY nombre COLLATE NOCASE'),
+  listDevicesByEmpresa: db.prepare(
+    'SELECT * FROM dispositivos WHERE empresa_id = ? ORDER BY nombre COLLATE NOCASE'
+  ),
 
-  deleteDevice: db.prepare('DELETE FROM dispositivos WHERE id = ?'),
+  deleteDevice: db.prepare('DELETE FROM dispositivos WHERE id = ? AND empresa_id = ?'),
 
+  // Migracion: dispositivos sin empresa.
+  listOrphanDevices: db.prepare('SELECT id FROM dispositivos WHERE empresa_id IS NULL'),
+  assignDeviceEmpresa: db.prepare('UPDATE dispositivos SET empresa_id = ? WHERE id = ?'),
+
+  // --- Playlists ---
   getPlaylist: db.prepare(`
     SELECT video_url_o_nombre, orden
       FROM playlists
      WHERE dispositivo_id = ?
      ORDER BY orden ASC
   `),
-
   clearPlaylist: db.prepare('DELETE FROM playlists WHERE dispositivo_id = ?'),
-
   insertPlaylistItem: db.prepare(`
     INSERT INTO playlists (dispositivo_id, video_url_o_nombre, orden)
     VALUES (@dispositivo_id, @video, @orden)
@@ -96,63 +197,195 @@ const stmts = {
      WHERE dispositivo_id = ?
      ORDER BY orden ASC
   `),
-
   clearImagePlaylist: db.prepare('DELETE FROM image_playlists WHERE dispositivo_id = ?'),
-
   insertImagePlaylistItem: db.prepare(`
     INSERT INTO image_playlists (dispositivo_id, imagen, orden)
     VALUES (@dispositivo_id, @imagen, @orden)
   `),
 };
 
-// ----------------------------- API del modulo -----------------------------
+// ----------------------------- Empresas -----------------------------
 
-/** Devuelve la lista ordenada de nombres de video de un dispositivo. */
+/** Crea una empresa con un pairing_code unico. Devuelve el registro creado. */
+function createEmpresa(nombre) {
+  const clean = String(nombre || '').trim();
+  if (!clean) {
+    const err = new Error('Nombre de empresa requerido');
+    err.code = 'EMPRESA_NOMBRE';
+    throw err;
+  }
+  if (stmts.getEmpresaByNombre.get(clean)) {
+    const err = new Error('Ya existe una empresa con ese nombre');
+    err.code = 'EMPRESA_DUP';
+    throw err;
+  }
+  const id = crypto.randomUUID();
+  const created_at = new Date().toISOString();
+  // Reintenta ante una colision (muy improbable) del pairing_code.
+  for (let intento = 0; intento < 5; intento++) {
+    const pairing_code = genPairingCode();
+    try {
+      stmts.insertEmpresa.run({ id, nombre: clean, pairing_code, created_at });
+      return stmts.getEmpresa.get(id);
+    } catch (e) {
+      if (!String(e.message).includes('UNIQUE')) throw e;
+    }
+  }
+  throw new Error('No se pudo generar un pairing_code unico');
+}
+
+function listEmpresas() {
+  return stmts.listEmpresas.all();
+}
+
+function getEmpresa(id) {
+  return stmts.getEmpresa.get(id);
+}
+
+function getEmpresaByPairingCode(code) {
+  if (!code) return null;
+  return stmts.getEmpresaByCode.get(String(code).trim().toUpperCase()) || null;
+}
+
+function getEmpresaByNombre(nombre) {
+  if (!nombre) return null;
+  return stmts.getEmpresaByNombre.get(String(nombre).trim()) || null;
+}
+
+function rotatePairingCode(empresaId) {
+  for (let intento = 0; intento < 5; intento++) {
+    const code = genPairingCode();
+    try {
+      const r = stmts.updateEmpresaCode.run(code, empresaId);
+      return r.changes > 0 ? code : null;
+    } catch (e) {
+      if (!String(e.message).includes('UNIQUE')) throw e;
+    }
+  }
+  throw new Error('No se pudo generar un pairing_code unico');
+}
+
+function setEmpresaActiva(empresaId, activa) {
+  return stmts.updateEmpresaActiva.run(activa ? 1 : 0, empresaId).changes > 0;
+}
+
+// ----------------------------- Usuarios -----------------------------
+
+/**
+ * Crea un usuario. Para super_admin, empresaId debe ser null.
+ * Lanza si el login ya existe en esa empresa (UNIQUE).
+ */
+function createUser({ empresaId = null, usuario, password, rol }) {
+  const id = crypto.randomUUID();
+  stmts.insertUser.run({
+    id,
+    empresa_id: empresaId,
+    usuario: String(usuario).trim(),
+    password_hash: hashPassword(password),
+    rol,
+    created_at: new Date().toISOString(),
+  });
+  return stmts.getUserById.get(id);
+}
+
+function getUserById(id) {
+  return stmts.getUserById.get(id);
+}
+
+/** Busca el usuario de una empresa por login (para autenticacion). */
+function getUserByLogin(empresaId, usuario) {
+  return stmts.getUserByLogin.get(empresaId, String(usuario).trim());
+}
+
+/** Busca el super-admin por login (empresa_id NULL). */
+function getSuperAdminByLogin(usuario) {
+  return stmts.getSuperByLogin.get(String(usuario).trim());
+}
+
+function listUsers(empresaId) {
+  return stmts.listUsersByEmpresa.all(empresaId);
+}
+
+function setUserActivo(empresaId, userId, activo) {
+  return stmts.setUserActivo.run(activo ? 1 : 0, userId, empresaId).changes > 0;
+}
+
+function deleteUser(empresaId, userId) {
+  return stmts.deleteUserStmt.run(userId, empresaId).changes > 0;
+}
+
+// ----------------------------- Helpers internos -----------------------------
+
 function getPlaylistArray(deviceId) {
   return stmts.getPlaylist.all(deviceId).map((r) => r.video_url_o_nombre);
 }
 
-/** Devuelve la lista ordenada de nombres de imagen de un dispositivo. */
 function getImagePlaylistArray(deviceId) {
   return stmts.getImagePlaylist.all(deviceId).map((r) => r.imagen);
 }
 
+/** Asegura que el dispositivo exista y pertenezca a la empresa. Devuelve el registro o null. */
+function ensureDeviceInEmpresa(empresaId, deviceId) {
+  const existing = stmts.getDevice.get(deviceId);
+  if (existing) {
+    return existing.empresa_id === empresaId ? existing : null; // de otra empresa => null
+  }
+  stmts.insertDevice.run({
+    id: deviceId,
+    empresa_id: empresaId,
+    nombre: `Dispositivo ${deviceId.slice(0, 8)}`,
+    ultima_conexion: null,
+    ip_actual: null,
+  });
+  return stmts.getDevice.get(deviceId);
+}
+
+// ----------------------------- Heartbeat (cliente) -----------------------------
+
 /**
- * Registra el dispositivo si no existe y actualiza ultima_conexion + IP.
- * Devuelve la playlist ordenada (array de nombres).
+ * Registra/actualiza un dispositivo y devuelve sus playlists.
+ * - Dispositivo existente: ignora el pairingCode, solo refresca conexion/IP.
+ * - Dispositivo nuevo: EXIGE un pairingCode valido de una empresa activa.
+ * Devuelve null si el dispositivo es nuevo y no hay emparejamiento valido.
  */
-const heartbeat = db.transaction((deviceId, ip, nombreSugerido) => {
+const heartbeat = db.transaction((deviceId, ip, nombreSugerido, pairingCode) => {
   const now = new Date().toISOString();
   const existing = stmts.getDevice.get(deviceId);
 
-  if (!existing) {
-    stmts.insertDevice.run({
-      id: deviceId,
-      nombre: nombreSugerido || `Dispositivo ${deviceId.slice(0, 8)}`,
-      ultima_conexion: now,
-      ip_actual: ip,
-    });
-  } else {
+  if (existing) {
     stmts.touchDevice.run({ id: deviceId, ultima_conexion: now, ip_actual: ip });
+    return {
+      empresaId: existing.empresa_id,
+      playlist: getPlaylistArray(deviceId),
+      images: getImagePlaylistArray(deviceId),
+    };
   }
 
+  // Dispositivo nuevo: requiere emparejamiento.
+  const empresa = getEmpresaByPairingCode(pairingCode);
+  if (!empresa || !empresa.activa) return null;
+
+  stmts.insertDevice.run({
+    id: deviceId,
+    empresa_id: empresa.id,
+    nombre: nombreSugerido || `Dispositivo ${deviceId.slice(0, 8)}`,
+    ultima_conexion: now,
+    ip_actual: ip,
+  });
+
   return {
+    empresaId: empresa.id,
     playlist: getPlaylistArray(deviceId),
     images: getImagePlaylistArray(deviceId),
   };
 });
 
-/** Reemplaza por completo la playlist de un dispositivo con el array dado. */
-const savePlaylist = db.transaction((deviceId, videos) => {
-  // Garantiza que el dispositivo exista (alta manual desde el panel).
-  if (!stmts.getDevice.get(deviceId)) {
-    stmts.insertDevice.run({
-      id: deviceId,
-      nombre: `Dispositivo ${deviceId.slice(0, 8)}`,
-      ultima_conexion: null,
-      ip_actual: null,
-    });
-  }
+// ----------------------------- Dispositivos (admin) -----------------------------
+
+/** Reemplaza la playlist de video de un dispositivo (acotado a la empresa). */
+const savePlaylist = db.transaction((empresaId, deviceId, videos) => {
+  const dev = ensureDeviceInEmpresa(empresaId, deviceId);
+  if (!dev) return null; // dispositivo de otra empresa
 
   stmts.clearPlaylist.run(deviceId);
   videos.forEach((video, idx) => {
@@ -162,21 +395,13 @@ const savePlaylist = db.transaction((deviceId, videos) => {
       orden: idx,
     });
   });
-
   return getPlaylistArray(deviceId);
 });
 
-/** Reemplaza por completo la playlist de imagenes de un dispositivo. */
-const saveImagePlaylist = db.transaction((deviceId, imagenes) => {
-  // Garantiza que el dispositivo exista (alta manual desde el panel).
-  if (!stmts.getDevice.get(deviceId)) {
-    stmts.insertDevice.run({
-      id: deviceId,
-      nombre: `Dispositivo ${deviceId.slice(0, 8)}`,
-      ultima_conexion: null,
-      ip_actual: null,
-    });
-  }
+/** Reemplaza la playlist de imagenes de un dispositivo (acotado a la empresa). */
+const saveImagePlaylist = db.transaction((empresaId, deviceId, imagenes) => {
+  const dev = ensureDeviceInEmpresa(empresaId, deviceId);
+  if (!dev) return null;
 
   stmts.clearImagePlaylist.run(deviceId);
   imagenes.forEach((imagen, idx) => {
@@ -186,16 +411,15 @@ const saveImagePlaylist = db.transaction((deviceId, imagenes) => {
       orden: idx,
     });
   });
-
   return getImagePlaylistArray(deviceId);
 });
 
-/** Lista de dispositivos con su estado (online/offline) y su playlist. */
-function listDevicesWithStatus(onlineWindowMin) {
+/** Lista de dispositivos de una empresa con estado online/offline y sus playlists. */
+function listDevicesWithStatus(empresaId, onlineWindowMin) {
   const limitMs = onlineWindowMin * 60 * 1000;
   const now = Date.now();
 
-  return stmts.listDevices.all().map((d) => {
+  return stmts.listDevicesByEmpresa.all(empresaId).map((d) => {
     const lastMs = d.ultima_conexion ? new Date(d.ultima_conexion).getTime() : 0;
     const online = lastMs > 0 && now - lastMs <= limitMs;
     return {
@@ -210,22 +434,107 @@ function listDevicesWithStatus(onlineWindowMin) {
   });
 }
 
-function renameDevice(deviceId, nombre) {
-  return stmts.renameDevice.run(nombre, deviceId).changes > 0;
+function renameDevice(empresaId, deviceId, nombre) {
+  return stmts.renameDevice.run(nombre, deviceId, empresaId).changes > 0;
 }
 
-function deleteDevice(deviceId) {
+const deleteDevice = db.transaction((empresaId, deviceId) => {
+  const dev = stmts.getDevice.get(deviceId);
+  if (!dev || dev.empresa_id !== empresaId) return false;
   stmts.clearPlaylist.run(deviceId);
   stmts.clearImagePlaylist.run(deviceId);
-  return stmts.deleteDevice.run(deviceId).changes > 0;
+  return stmts.deleteDevice.run(deviceId, empresaId).changes > 0;
+});
+
+/** ¿Existe el dispositivo dentro de esta empresa? */
+function deviceExists(empresaId, deviceId) {
+  const dev = stmts.getDevice.get(deviceId);
+  return !!dev && dev.empresa_id === empresaId;
 }
 
-function deviceExists(deviceId) {
-  return !!stmts.getDevice.get(deviceId);
+/** Crea un dispositivo vacio bajo la empresa (alta manual desde el panel). */
+function createDevice(empresaId, deviceId, nombre) {
+  const dev = ensureDeviceInEmpresa(empresaId, deviceId);
+  if (!dev) return false;
+  if (nombre) stmts.renameDevice.run(String(nombre).trim(), deviceId, empresaId);
+  return true;
 }
+
+/** Devuelve la empresa_id de un dispositivo (para acotar descargas), o null. */
+function getDeviceEmpresaId(deviceId) {
+  const dev = stmts.getDevice.get(deviceId);
+  return dev ? dev.empresa_id : null;
+}
+
+// ----------------------------- Seed / Migracion de datos -----------------------------
+
+/**
+ * Asegura el super-admin y, si corresponde, migra la data existente a una
+ * empresa "Default". Idempotente: se ejecuta en cada arranque.
+ *
+ * Devuelve { defaultEmpresaId } con la empresa que recibio los dispositivos
+ * huerfanos (o null si no hubo migracion de medios que hacer).
+ */
+const ensureSeed = db.transaction((opts) => {
+  const {
+    superUser,
+    superPass,
+    defaultAdminUser,
+    defaultAdminPass,
+    defaultEmpresaNombre = 'Default',
+  } = opts;
+
+  // 1) Super-admin global (si no existe ninguno).
+  if (stmts.countSuper.get().n === 0) {
+    createUser({ empresaId: null, usuario: superUser, password: superPass, rol: 'super_admin' });
+  }
+
+  // 2) Migracion: dispositivos huerfanos (BD antigua) o BD sin empresas.
+  const orphans = stmts.listOrphanDevices.all();
+  const sinEmpresas = stmts.listEmpresas.all().length === 0;
+
+  let defaultEmpresaId = null;
+  if (orphans.length > 0 || sinEmpresas) {
+    const empresa = createEmpresa(defaultEmpresaNombre);
+    defaultEmpresaId = empresa.id;
+
+    // Asigna todos los dispositivos huerfanos a la empresa Default.
+    orphans.forEach((d) => stmts.assignDeviceEmpresa.run(empresa.id, d.id));
+
+    // Crea el admin de la empresa Default (reusa credenciales antiguas).
+    createUser({
+      empresaId: empresa.id,
+      usuario: defaultAdminUser,
+      password: defaultAdminPass,
+      rol: 'admin',
+    });
+  }
+
+  return { defaultEmpresaId };
+});
 
 module.exports = {
   db,
+  // hashing
+  hashPassword,
+  verifyPassword,
+  // empresas
+  createEmpresa,
+  listEmpresas,
+  getEmpresa,
+  getEmpresaByPairingCode,
+  getEmpresaByNombre,
+  rotatePairingCode,
+  setEmpresaActiva,
+  // usuarios
+  createUser,
+  getUserById,
+  getUserByLogin,
+  getSuperAdminByLogin,
+  listUsers,
+  setUserActivo,
+  deleteUser,
+  // dispositivos / playlists (acotados por empresa)
   heartbeat,
   savePlaylist,
   saveImagePlaylist,
@@ -235,4 +544,8 @@ module.exports = {
   renameDevice,
   deleteDevice,
   deviceExists,
+  createDevice,
+  getDeviceEmpresaId,
+  // seed / migracion
+  ensureSeed,
 };

@@ -20,6 +20,7 @@ data class Config(
     val serverUrl: String,
     val deviceId: String,
     val deviceName: String,
+    val pairingCode: String,
     val heartbeatSeconds: Int,
     val imageSeconds: Int,
     val weather: WeatherCfg,
@@ -61,6 +62,8 @@ data class Config(
                     .trim().trimEnd('/'),
                 deviceId = json.optString("deviceId"),
                 deviceName = json.optString("deviceName").ifBlank { Build.MODEL ?: "android-tv" },
+                // Codigo de emparejamiento de la empresa (multi-tenant).
+                pairingCode = json.optString("pairingCode").trim(),
                 heartbeatSeconds = json.optInt("heartbeatSeconds", 60).coerceAtLeast(10),
                 imageSeconds = json.optInt("imageSeconds", 6).coerceAtLeast(1),
                 weather = WeatherCfg(
@@ -74,6 +77,7 @@ data class Config(
         private fun template(): JSONObject = JSONObject().apply {
             put("serverUrl", DEFAULT_SERVER)
             put("deviceName", "CAMBIAR-nombre-del-dispositivo")
+            put("pairingCode", "CAMBIAR-codigo-de-emparejamiento-de-tu-empresa")
             put("heartbeatSeconds", 60)
             put("imageSeconds", 6)
             put("weather", JSONObject().apply {

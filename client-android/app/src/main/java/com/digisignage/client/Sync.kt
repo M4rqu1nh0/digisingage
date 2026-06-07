@@ -36,10 +36,11 @@ object Sync {
     data class Heartbeat(val playlist: List<String>, val images: List<String>)
 
     /** POST /api/heartbeat -> { playlist[], images[] }. Lanza excepción si falla. */
-    fun heartbeat(serverUrl: String, deviceId: String, deviceName: String): Heartbeat {
+    fun heartbeat(serverUrl: String, deviceId: String, deviceName: String, pairingCode: String): Heartbeat {
         val body = JSONObject()
             .put("deviceId", deviceId)
             .put("nombre", deviceName)
+            .put("pairingCode", pairingCode)
             .toString()
             .toRequestBody(JSON)
 
