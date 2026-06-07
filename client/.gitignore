@@ -1,0 +1,25 @@
+# Dependencias (se reinstalan con: npm install)
+node_modules/
+
+# Salida del build de Electron (electron-builder)
+dist/
+
+# Carpeta de datos portable (config.json + deviceId + videos descargados)
+data/
+
+# Perfil local de Chrome del kiosko antiguo (ya no se usa con Electron)
+chrome-profile/
+
+# Videos descargados (modo antiguo: cada equipo baja los suyos)
+videos/
+
+# Estado local del reproductor antiguo
+current_playlist.json
+
+# Config real de cada maquina: contiene su deviceId unico.
+# Se distribuye config.template.json, NO este archivo.
+config.json
+
+# Logs / temporales
+*.log
+*.part

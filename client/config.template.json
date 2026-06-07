@@ -1,0 +1,7 @@
+{
+  "serverUrl": " http://localhost:4000",
+  "deviceName": "CAMBIAR-nombre-del-dispositivo",
+  "heartbeatSeconds": 60,
+  "imageSeconds": 6,
+  "weather": { "lat": null, "lon": null, "city": "Valparaíso, Chile" }
+}

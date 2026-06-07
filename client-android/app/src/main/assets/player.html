@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DigiSignage Player</title>
+  <style>
+    :root {
+      --slider-w: 340px;   /* ancho de la columna del slider */
+      --bottom-h: 140px;   /* alto de la franja inferior */
+      --gap: 4px;
+      --bg: #000;
+      --panel: #0e1320;
+      --text: #e6edf3;
+      --muted: #8b98a9;
+      --accent: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: var(--bg); color: var(--text); overflow: hidden;
+      cursor: none;
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    }
+
+    /* ---- Cuadrícula 2×2 de zonas ---- */
+    #app {
+      display: grid;
+      width: 100vw; height: 100vh;
+      gap: var(--gap);
+      background: #000;
+      grid-template-columns: 1fr var(--slider-w);
+      grid-template-rows: 1fr var(--bottom-h);
+      grid-template-areas:
+        "video   slider"
+        "weather clock";
+    }
+    .zone { position: relative; overflow: hidden; background: var(--panel); }
+
+    /* ---- Zona 1: Video ---- */
+    #video { grid-area: video; background: #000; }
+    #player {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: contain; background: #000;
+    }
+    #idle {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      color: #3a4253; font-size: 22px;
+    }
+    #idle.show { display: flex; }
+
+    /* ---- Zona 2: Slider de imágenes ---- */
+    #slider { grid-area: slider; background: #000; }
+    .slide {
+      position: absolute; inset: 0;
+      background-size: contain; background-position: center; background-repeat: no-repeat;
+      opacity: 0; transition: opacity 0.8s ease;
+    }
+    .slide.show { opacity: 1; }
+    #sliderEmpty {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      color: #3a4253; font-size: 14px; text-align: center; padding: 12px;
+    }
+    #sliderEmpty.show { display: flex; }
+
+    /* ---- Zona 3: Fecha y hora (bajo el slider) ---- */
+    #clock {
+      grid-area: clock;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; background: linear-gradient(180deg, #131a2b, #0c111c);
+    }
+    #time { font-size: clamp(28px, 4.5vw, 52px); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+    #date { font-size: clamp(12px, 1.3vw, 18px); color: var(--muted); text-transform: capitalize; text-align: center; }
+
+    /* ---- Zona 4: Clima (franja bajo el video) ---- */
+    #weather {
+      grid-area: weather;
+      display: flex; align-items: center; gap: 24px; padding: 0 28px;
+      background: linear-gradient(180deg, #14233c, #0c1422);
+    }
+    #weather .wx-icon { font-size: clamp(36px, 5vw, 64px); line-height: 1; }
+    #weather .wx-temp { font-size: clamp(30px, 4.5vw, 56px); font-weight: 700; font-variant-numeric: tabular-nums; }
+    #weather .wx-info { display: flex; flex-direction: column; gap: 2px; }
+    #weather .wx-city { font-size: clamp(14px, 1.6vw, 22px); font-weight: 600; }
+    #weather .wx-cond { font-size: clamp(12px, 1.3vw, 18px); color: var(--muted); }
+    #weather .wx-extra { margin-left: auto; text-align: right; color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); line-height: 1.6; }
+    #weather .wx-badge {
+      font-size: 10px; color: #fff; background: rgba(59,130,246,0.5);
+      border-radius: 4px; padding: 1px 6px; vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Zona 1: Video -->
+    <div id="video" class="zone">
+      <video id="player" autoplay playsinline></video>
+      <div id="idle">Esperando contenido…</div>
+    </div>
+
+    <!-- Zona 2: Slider de imágenes -->
+    <div id="slider" class="zone">
+      <div class="slide" id="slideA"></div>
+      <div class="slide" id="slideB"></div>
+      <div id="sliderEmpty" class="show">Sin imágenes asignadas</div>
+    </div>
+
+    <!-- Zona 4: Clima (Open-Meteo) -->
+    <div id="weather" class="zone">
+      <div class="wx-icon" id="wxIcon">🌡️</div>
+      <div class="wx-temp" id="wxTemp">--°</div>
+      <div class="wx-info">
+        <div class="wx-city" id="wxCity">—</div>
+        <div class="wx-cond" id="wxCond">Cargando clima…</div>
+      </div>
+      <div class="wx-extra" id="wxExtra"></div>
+    </div>
+
+    <!-- Zona 3: Fecha y hora -->
+    <div id="clock" class="zone">
+      <div id="time">--:--:--</div>
+      <div id="date">—</div>
+    </div>
+  </div>
+
+  <script>
+    // ====================================================================
+    //  Reproductor multi-zona (Android WebView)
+    //  - Zona video: playlist de video (bridge 'playlist', URLs media/).
+    //  - Zona slider: imágenes en bucle (bridge 'images', URLs img/).
+    //  - Zona reloj: fecha/hora local.
+    //  - Zona clima: datos reales de Open-Meteo recibidos desde Kotlin.
+    //
+    //  El proceso nativo (MainActivity) empuja datos llamando a
+    //  window.__signage.playlist([...]) / .images([...]) / .settings({...}) /
+    //  .weather({...}) mediante evaluateJavascript.
+    //  Las URLs media/ e img/ se resuelven contra el mismo origen sintético
+    //  (https://appassets.local/) que sirve el WebViewClient nativo, con
+    //  soporte de peticiones por rango para que el <video> reproduzca bien.
+    // ====================================================================
+
+    const MEDIA_BASE = 'https://appassets.local/media/';
+    const IMG_BASE = 'https://appassets.local/img/';
+
+    let imageSeconds = 6;
+
+    // ------------------------- Zona 1: Video -------------------------
+    const video = document.getElementById('player');
+    const idle = document.getElementById('idle');
+    let playlist = [], vIndex = 0, vSignature = '';
+
+    function setIdle(on) { idle.classList.toggle('show', on); }
+
+    function playCurrent() {
+      if (!playlist.length) { setIdle(true); return; }
+      if (vIndex >= playlist.length) vIndex = 0;
+      setIdle(false);
+      const file = playlist[vIndex];
+      video.src = MEDIA_BASE + encodeURIComponent(file);
+      video.muted = false;
+      video.volume = 1.0;
+      video.load();
+      const p = video.play();
+      if (p && p.catch) p.catch((err) => {
+        console.warn('play() con audio bloqueado, reintentando en silencio:', err.message);
+        video.muted = true;
+        const p2 = video.play();
+        if (p2 && p2.catch) p2.catch((e2) => console.warn('play() bloqueado:', e2.message));
+      });
+    }
+
+    function vNext() {
+      vIndex++;
+      if (vIndex >= playlist.length) vIndex = 0;
+      playCurrent();
+    }
+
+    function applyPlaylist(videos) {
+      videos = Array.isArray(videos) ? videos : [];
+      const sig = JSON.stringify(videos);
+      if (sig === vSignature) return;
+      vSignature = sig;
+      const estabaSinReproducir = !playlist.length || video.paused || video.ended;
+      playlist = videos;
+      if (!playlist.length) { setIdle(true); return; }
+      if (estabaSinReproducir) { vIndex = 0; playCurrent(); }
+    }
+
+    video.addEventListener('ended', vNext);
+    video.addEventListener('error', () => { console.warn('Error de video -> siguiente'); setTimeout(vNext, 1500); });
+
+    let vLastTime = 0, vStalled = 0;
+    setInterval(() => {
+      if (!playlist.length || video.paused || video.ended) return;
+      if (video.currentTime === vLastTime) { if (++vStalled >= 5) { vStalled = 0; vNext(); } }
+      else { vStalled = 0; vLastTime = video.currentTime; }
+    }, 2000);
+
+    // ------------------------- Zona 2: Slider -------------------------
+    const slideA = document.getElementById('slideA');
+    const slideB = document.getElementById('slideB');
+    const sliderEmpty = document.getElementById('sliderEmpty');
+    let images = [], iIndex = 0, iSignature = '', sliderTimer = null, frontSlide = slideA;
+
+    function showSlide(file) {
+      const back = frontSlide === slideA ? slideB : slideA;
+      back.style.backgroundImage = `url("${IMG_BASE}${encodeURIComponent(file)}")`;
+      back.classList.add('show');
+      frontSlide.classList.remove('show');
+      frontSlide = back;
+    }
+
+    function sliderTick() {
+      if (!images.length) return;
+      showSlide(images[iIndex]);
+      iIndex = (iIndex + 1) % images.length;
+    }
+
+    function startSlider() {
+      if (sliderTimer) clearInterval(sliderTimer);
+      if (!images.length) {
+        sliderEmpty.classList.add('show');
+        slideA.classList.remove('show'); slideB.classList.remove('show');
+        return;
+      }
+      sliderEmpty.classList.remove('show');
+      iIndex = 0;
+      sliderTick();                 // primera imagen inmediata
+      sliderTimer = setInterval(sliderTick, imageSeconds * 1000);
+    }
+
+    function applyImages(list) {
+      list = Array.isArray(list) ? list : [];
+      const sig = JSON.stringify(list);
+      if (sig === iSignature) return;
+      iSignature = sig;
+      images = list;
+      startSlider();
+    }
+
+    // ------------------------- Zona 3: Reloj -------------------------
+    const timeEl = document.getElementById('time');
+    const dateEl = document.getElementById('date');
+    function tickClock() {
+      const now = new Date();
+      timeEl.textContent = now.toLocaleTimeString('es');
+      dateEl.textContent = now.toLocaleDateString('es', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      });
+    }
+    setInterval(tickClock, 1000); tickClock();
+
+    // ------------------------- Zona 4: Clima -------------------------
+    // Recibe el clima real (Open-Meteo) desde el proceso nativo por el bridge.
+    // Mapea el codigo WMO a un icono y una descripcion en español.
+    function wxCodeInfo(code, isDay) {
+      const map = {
+        0: ['Despejado', isDay ? '☀️' : '🌙'],
+        1: ['Mayormente despejado', isDay ? '🌤️' : '🌙'],
+        2: ['Parcialmente nublado', '⛅'],
+        3: ['Nublado', '☁️'],
+        45: ['Niebla', '🌫️'], 48: ['Niebla', '🌫️'],
+        51: ['Llovizna', '🌦️'], 53: ['Llovizna', '🌦️'], 55: ['Llovizna', '🌦️'],
+        56: ['Llovizna helada', '🌧️'], 57: ['Llovizna helada', '🌧️'],
+        61: ['Lluvia', '🌧️'], 63: ['Lluvia', '🌧️'], 65: ['Lluvia fuerte', '🌧️'],
+        66: ['Lluvia helada', '🌧️'], 67: ['Lluvia helada', '🌧️'],
+        71: ['Nieve', '🌨️'], 73: ['Nieve', '🌨️'], 75: ['Nieve fuerte', '🌨️'], 77: ['Granizo', '🌨️'],
+        80: ['Chubascos', '🌦️'], 81: ['Chubascos', '🌦️'], 82: ['Chubascos fuertes', '⛈️'],
+        85: ['Chubascos de nieve', '🌨️'], 86: ['Chubascos de nieve', '🌨️'],
+        95: ['Tormenta', '⛈️'], 96: ['Tormenta con granizo', '⛈️'], 99: ['Tormenta con granizo', '⛈️'],
+      };
+      return map[code] || ['—', '🌡️'];
+    }
+
+    function applyWeather(w) {
+      if (!w) return;
+      const [cond, icon] = wxCodeInfo(w.code, w.isDay);
+      document.getElementById('wxIcon').textContent = icon;
+      document.getElementById('wxTemp').textContent =
+        (w.temp == null || Number.isNaN(w.temp) ? '--' : w.temp) + '°';
+      document.getElementById('wxCity').textContent = w.city || '';
+      document.getElementById('wxCond').textContent = cond;
+      const extra = [];
+      if (w.max != null && w.min != null) extra.push(`Máx ${w.max}° · Mín ${w.min}°`);
+      const hw = [];
+      if (w.humidity != null) hw.push(`Humedad ${w.humidity}%`);
+      if (w.wind != null) hw.push(`Viento ${w.wind} km/h`);
+      if (hw.length) extra.push(hw.join(' · '));
+      document.getElementById('wxExtra').innerHTML = extra.join('<br>');
+    }
+
+    // ------------------------- Bridge nativo -------------------------
+    // Reemplaza el IPC de Electron: Kotlin invoca estas funciones con
+    // evaluateJavascript. Aceptan arrays/objetos o cadenas JSON (por robustez).
+    function asData(x) {
+      if (typeof x === 'string') { try { return JSON.parse(x); } catch { return x; } }
+      return x;
+    }
+    window.__signage = {
+      playlist: (v) => applyPlaylist(asData(v)),
+      images: (v) => applyImages(asData(v)),
+      weather: (v) => applyWeather(asData(v)),
+      settings: (s) => {
+        s = asData(s);
+        if (s && Number(s.imageSeconds) > 0) { imageSeconds = Number(s.imageSeconds); startSlider(); }
+      },
+    };
+
+    setIdle(true);
+  </script>
+</body>
+</html>
