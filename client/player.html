@@ -216,9 +216,20 @@
       const empty = zone.querySelector('.slider-empty');
       const items = Array.isArray(config.items) ? config.items : [];
       const modo = config.modo === 'estatica' ? 'estatica' : 'slider';
-      let front = slideA, idx = 0, timer = null;
+      let front = slideA, timer = null, destroyed = false;
 
-      function show(file) {
+      // Comprueba que la imagen cargue (esté descargada) antes de mostrarla, así
+      // nunca se intenta pintar un archivo que aún se está descargando.
+      function preload(file) {
+        return new Promise((resolve) => {
+          const im = new Image();
+          im.onload = () => resolve(true);
+          im.onerror = () => resolve(false);
+          // cache-buster: re-verifica disponibilidad en cada reintento.
+          im.src = `${IMG_BASE}${encodeURIComponent(file)}?t=${Date.now()}`;
+        });
+      }
+      function setBg(file) {
         const back = front === slideA ? slideB : slideA;
         back.style.backgroundImage = `url("${IMG_BASE}${encodeURIComponent(file)}")`;
         back.classList.add('show');
@@ -226,27 +237,33 @@
         front = back;
       }
       function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
-      function scheduleNext() {
+
+      // Muestra items[i] si ya está disponible; si no, mantiene la imagen actual
+      // y reintenta pronto. Avanza al siguiente solo tras mostrar el actual.
+      async function showAt(i) {
+        if (destroyed) return;
+        const ok = await preload(items[i].file);
+        if (destroyed) return;
+        if (ok) setBg(items[i].file);
         clearTimer();
-        if (modo !== 'slider' || items.length <= 1) return;
-        const secs = Number(items[idx] && items[idx].segundos) > 0 ? Number(items[idx].segundos) : 6;
-        timer = setTimeout(() => {
-          idx = (idx + 1) % items.length;
-          show(items[idx].file);
-          scheduleNext();
-        }, secs * 1000);
+        const single = modo !== 'slider' || items.length <= 1;
+        if (ok) {
+          if (single) return; // estática o 1 imagen: nada que rotar
+          const secs = Number(items[i].segundos) > 0 ? Number(items[i].segundos) : 6;
+          timer = setTimeout(() => showAt((i + 1) % items.length), secs * 1000);
+        } else {
+          timer = setTimeout(() => showAt(i), 3000); // aún descargando: reintenta
+        }
       }
 
       if (!items.length) {
         empty.classList.add('show');
       } else {
         empty.classList.remove('show');
-        idx = 0;
-        show(items[0].file);
-        scheduleNext();
+        showAt(0);
       }
 
-      return { destroy() { clearTimer(); } };
+      return { destroy() { destroyed = true; clearTimer(); } };
     }
 
     function createReloj(zone) {

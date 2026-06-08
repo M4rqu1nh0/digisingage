@@ -80,6 +80,18 @@ class SyncService : Service() {
             hb.layout?.let { SignageState.emit("layout", it) }
 
             // Lista vacía = "sin actualización": NO se borra lo local (igual que main.js).
+            // Primero IMÁGENES (pequeñas, rápidas) y luego VIDEOS (grandes); el
+            // reproductor solo muestra lo ya descargado, así que no hay conflicto.
+            if (hb.images.isEmpty()) {
+                Log.i(TAG, "[heartbeat] OK · imagenes vacias -> se conserva lo local")
+            } else {
+                val available = Sync.syncMedia(
+                    hb.images, Config.imagesDir(this), Sync.imageRegex()
+                ) { n -> "${cfg.serverUrl}/image/${enc(n)}?deviceId=${enc(cfg.deviceId)}" }
+                SignageState.emit("images", JSONArray(available).toString())
+                Log.i(TAG, "[sync] Imagenes disponibles: $available")
+            }
+
             if (hb.playlist.isEmpty()) {
                 Log.i(TAG, "[heartbeat] OK · videos vacios -> se conserva lo local")
             } else {
@@ -89,16 +101,6 @@ class SyncService : Service() {
                 ) { n -> "${cfg.serverUrl}/download/${enc(n)}?deviceId=${enc(cfg.deviceId)}" }
                 SignageState.emit("playlist", JSONArray(available).toString())
                 Log.i(TAG, "[sync] Videos disponibles: $available")
-            }
-
-            if (hb.images.isEmpty()) {
-                Log.i(TAG, "[heartbeat] OK · imagenes vacias -> se conserva lo local")
-            } else {
-                val available = Sync.syncMedia(
-                    hb.images, Config.imagesDir(this), Sync.imageRegex()
-                ) { n -> "${cfg.serverUrl}/image/${enc(n)}?deviceId=${enc(cfg.deviceId)}" }
-                SignageState.emit("images", JSONArray(available).toString())
-                Log.i(TAG, "[sync] Imagenes disponibles: $available")
             }
         } catch (e: Exception) {
             Log.w(TAG, "[heartbeat] FALLO - ${e.message} (se conserva el contenido local)")
