@@ -75,6 +75,10 @@ class SyncService : Service() {
         try {
             val hb = Sync.heartbeat(cfg.serverUrl, cfg.deviceId, cfg.deviceName, cfg.pairingCode)
 
+            // El layout define las zonas/widgets; se reenvia al reproductor (la
+            // descarga de medios sigue usando playlist/images).
+            hb.layout?.let { SignageState.emit("layout", it) }
+
             // Lista vacía = "sin actualización": NO se borra lo local (igual que main.js).
             if (hb.playlist.isEmpty()) {
                 Log.i(TAG, "[heartbeat] OK · videos vacios -> se conserva lo local")

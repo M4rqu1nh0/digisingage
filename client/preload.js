@@ -7,6 +7,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('signage', {
+  // cb recibe el layout actual ({ preset, zones }) para construir las zonas.
+  onLayout: (cb) => ipcRenderer.on('layout', (_event, layout) => cb(layout)),
   // cb recibe un array de nombres de video (en orden de reproduccion).
   onPlaylist: (cb) => ipcRenderer.on('playlist', (_event, videos) => cb(videos)),
   // cb recibe un array de nombres de imagen (para el slider).

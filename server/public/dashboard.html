@@ -8,7 +8,10 @@
 </head>
 <body>
   <div class="topbar">
-    <div class="brand"><span class="dot"></span> DigiSignage</div>
+    <div class="left">
+      <div class="brand"><span class="dot"></span> DigiSignage</div>
+      <nav class="nav" id="topnav"></nav>
+    </div>
     <div class="right">
       <span class="muted" id="clock"></span>
       <input type="file" id="fileInput" accept="video/*,.mp4,.webm,.ogg,.mov,.mkv" multiple hidden />
@@ -40,254 +43,88 @@
 
     <div id="uploadPanel" class="upload-panel"></div>
 
-    <!-- Biblioteca de videos: selecciona uno o varios y asígnalos a un
-         dispositivo con «Añadir videos» en su tarjeta. -->
-    <details id="libraryBox" class="library" open>
-      <summary>
-        <span>📚 Biblioteca de videos (<span id="libCount">0</span>)</span>
-        <span class="muted" id="libSelInfo">0 seleccionado(s)</span>
-      </summary>
-      <div class="lib-wrap">
-        <table class="lib-table">
-          <thead>
-            <tr>
-              <th class="col-check"><input type="checkbox" id="libSelectAll" title="Seleccionar todos" /></th>
-              <th>Nombre del archivo</th>
-            </tr>
-          </thead>
-          <tbody id="libBody"></tbody>
-        </table>
-        <div class="lib-empty muted" id="libEmpty">Aún no hay videos. Sube alguno con «Subir video».</div>
-      </div>
-    </details>
+    <!-- Bibliotecas de medios disponibles (la asignación a zonas se hace al editar
+         cada pantalla). -->
+    <div class="lib-grid">
+      <details class="library" open>
+        <summary><span>📚 Biblioteca de videos (<span id="libCount">0</span>)</span></summary>
+        <div class="lib-wrap">
+          <table class="lib-table">
+            <thead><tr><th>Nombre del archivo</th></tr></thead>
+            <tbody id="libBody"></tbody>
+          </table>
+          <div class="lib-empty muted" id="libEmpty">Aún no hay videos. Sube alguno con «Subir video».</div>
+        </div>
+      </details>
 
-    <!-- Biblioteca de imágenes del slider. -->
-    <details id="imgLibraryBox" class="library">
-      <summary>
-        <span>🖼️ Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span>
-        <span class="muted" id="imgLibSelInfo">0 seleccionado(s)</span>
-      </summary>
-      <div class="lib-wrap">
-        <table class="lib-table">
-          <thead>
-            <tr>
-              <th class="col-check"><input type="checkbox" id="imgLibSelectAll" title="Seleccionar todas" /></th>
-              <th>Nombre del archivo</th>
-            </tr>
-          </thead>
-          <tbody id="imgLibBody"></tbody>
-        </table>
-        <div class="lib-empty muted" id="imgLibEmpty">Aún no hay imágenes. Sube alguna con «Subir imagen».</div>
-      </div>
-    </details>
+      <details class="library" open>
+        <summary><span>🖼️ Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span></summary>
+        <div class="lib-wrap">
+          <table class="lib-table">
+            <thead><tr><th>Nombre del archivo</th></tr></thead>
+            <tbody id="imgLibBody"></tbody>
+          </table>
+          <div class="lib-empty muted" id="imgLibEmpty">Aún no hay imágenes. Sube alguna con «Subir imagen».</div>
+        </div>
+      </details>
+    </div>
 
-    <!-- Gestión de usuarios de la empresa (solo visible para rol admin). -->
-    <details id="usersBox" class="library" hidden>
-      <summary><span>👥 Usuarios de la empresa (<span id="usersCount">0</span>)</span></summary>
-      <div class="lib-wrap">
-        <form id="userForm" class="create-grid">
-          <div>
-            <label for="newUser">Usuario</label>
-            <input type="text" id="newUser" required placeholder="nombre.usuario" />
-          </div>
-          <div>
-            <label for="newPass">Contraseña</label>
-            <input type="password" id="newPass" required placeholder="••••••••" />
-          </div>
-          <div>
-            <label for="newRol">Rol</label>
-            <select id="newRol">
-              <option value="operador">Operador</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div class="create-actions">
-            <button class="btn" type="submit">Añadir usuario</button>
-            <span class="save-hint" id="userHint"></span>
-          </div>
-        </form>
-        <table class="lib-table" style="margin-top:14px">
-          <thead>
-            <tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr>
-          </thead>
-          <tbody id="usersBody"></tbody>
-        </table>
-      </div>
-    </details>
-
-    <div class="cards" id="cards"></div>
+    <div class="cards" id="cards" style="margin-top:18px;"></div>
   </div>
 
+  <script src="/js/common.js"></script>
   <script>
     const cardsEl = document.getElementById('cards');
     const summaryEl = document.getElementById('summary');
-    const clockEl = document.getElementById('clock');
 
-    let mediaCache = [];   // videos disponibles en el servidor
-    let imagesCache = [];  // imagenes disponibles en el servidor
-    let maxUploadMB = 0;   // 0 = aún no conocido
+    let mediaCache = [];
+    let imagesCache = [];
+    let maxUploadMB = 0;
 
-    // Selecciones de cada biblioteca (para asignar a dispositivos).
-    const selectedMedia = new Set();
-    const selectedImages = new Set();
-
-    // Estado de edición por (tipo+dispositivo). Clave: "video:<id>" / "image:<id>".
-    const localPlaylists = {};   // key -> [archivo, ...]
-    const dirty = new Set();      // keys con cambios sin guardar
-    let draggingActive = false;   // pausa el auto-refresco mientras se arrastra
-
-    const keyOf = (kind, id) => kind + ':' + id;
-
-    function esc(s) {
-      return String(s).replace(/[&<>"']/g, (c) =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    // ---------------------- Bibliotecas (listado simple) ----------------------
+    function renderSimpleLib(arr, ids) {
+      document.getElementById(ids.count).textContent = arr.length;
+      const body = document.getElementById(ids.body);
+      const empty = document.getElementById(ids.empty);
+      if (!arr.length) { body.innerHTML = ''; empty.style.display = ''; return; }
+      empty.style.display = 'none';
+      body.innerHTML = arr.map((m) => `
+        <tr>
+          <td>
+            <div class="lib-name">${esc(m.name)}</div>
+            <div class="lib-meta">${esc(mediaMetaLine(m))}</div>
+          </td>
+        </tr>`).join('');
     }
 
-    function fmtFecha(iso) {
-      if (!iso) return 'Nunca';
-      const d = new Date(iso);
-      const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
-      if (diffSec < 60) return `hace ${diffSec}s`;
-      if (diffSec < 3600) return `hace ${Math.floor(diffSec / 60)} min`;
-      return d.toLocaleString('es');
+    async function loadMedia() {
+      try {
+        const res = await fetch('/api/admin/media');
+        if (res.ok) {
+          const data = await res.json();
+          mediaCache = data.media || [];
+          maxUploadMB = data.maxUploadMB || 0;
+          const lbl = document.getElementById('dzLimit');
+          if (lbl) lbl.textContent = maxUploadMB
+            ? `Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp · Máx. ${maxUploadMB} MB`
+            : 'Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp';
+          renderSimpleLib(mediaCache, { body: 'libBody', count: 'libCount', empty: 'libEmpty' });
+        }
+      } catch {}
     }
 
-    // ---------------------- Bibliotecas (videos / imágenes) ----------------------
-    // Controlador genérico para una biblioteca con checkboxes y "seleccionar todos".
-    function createLibrary({ cache, selected, ids }) {
-      const el = (k) => document.getElementById(ids[k]);
-      function info() {
-        el('selInfo').textContent = `${selected.size} seleccionado(s)`;
-        const all = el('selectAll');
-        all.checked = cache().length > 0 && selected.size === cache().length;
-        all.indeterminate = selected.size > 0 && selected.size < cache().length;
-      }
-      function render() {
-        const arr = cache();
-        el('count').textContent = arr.length;
-        [...selected].forEach((f) => { if (!arr.includes(f)) selected.delete(f); });
-        if (!arr.length) { el('body').innerHTML = ''; el('empty').style.display = ''; info(); return; }
-        el('empty').style.display = 'none';
-        el('body').innerHTML = arr.map((m) => `
-          <tr data-file="${esc(m)}">
-            <td class="col-check"><input type="checkbox" class="lib-check" ${selected.has(m) ? 'checked' : ''} /></td>
-            <td class="lib-name">${esc(m)}</td>
-          </tr>`).join('');
-        info();
-      }
-      el('body').addEventListener('change', (e) => {
-        if (!e.target.classList.contains('lib-check')) return;
-        const file = e.target.closest('tr').dataset.file;
-        if (e.target.checked) selected.add(file); else selected.delete(file);
-        info();
-      });
-      el('selectAll').addEventListener('change', (e) => {
-        if (e.target.checked) cache().forEach((m) => selected.add(m)); else selected.clear();
-        render();
-      });
-      return { render };
+    async function loadImages() {
+      try {
+        const res = await fetch('/api/admin/images');
+        if (res.ok) {
+          const data = await res.json();
+          imagesCache = data.images || [];
+          renderSimpleLib(imagesCache, { body: 'imgLibBody', count: 'imgLibCount', empty: 'imgLibEmpty' });
+        }
+      } catch {}
     }
 
-    const videoLib = createLibrary({
-      cache: () => mediaCache, selected: selectedMedia,
-      ids: { body: 'libBody', count: 'libCount', selInfo: 'libSelInfo', selectAll: 'libSelectAll', empty: 'libEmpty' },
-    });
-    const imageLib = createLibrary({
-      cache: () => imagesCache, selected: selectedImages,
-      ids: { body: 'imgLibBody', count: 'imgLibCount', selInfo: 'imgLibSelInfo', selectAll: 'imgLibSelectAll', empty: 'imgLibEmpty' },
-    });
-
-    // ---------------------- Listas ordenables (genéricas) ----------------------
-    function plItemHTML(file) {
-      return `<li class="pl-item" draggable="true" data-file="${esc(file)}">
-        <span class="pl-handle" title="Arrastra para ordenar">⠿</span>
-        <span class="pl-name">${esc(file)}</span>
-        <button class="pl-dup" title="Duplicar (repetir)">⧉</button>
-        <button class="pl-del" title="Quitar de la lista">✕</button>
-      </li>`;
-    }
-
-    function makeItem(file) {
-      const tpl = document.createElement('template');
-      tpl.innerHTML = plItemHTML(file).trim();
-      return tpl.content.firstChild;
-    }
-
-    function playlistFromDOM(list) {
-      return [...list.querySelectorAll('.pl-item')].map((li) => li.dataset.file);
-    }
-
-    function toggleEmpty(list) {
-      const empty = list.parentElement.querySelector('.pl-empty');
-      if (empty) empty.style.display = list.children.length ? 'none' : '';
-    }
-
-    // Sincroniza el estado local desde el DOM y marca como editado (por tipo+id).
-    function syncLocal(list) {
-      const k = keyOf(list.dataset.kind, list.dataset.id);
-      localPlaylists[k] = playlistFromDOM(list);
-      dirty.add(k);
-      toggleEmpty(list);
-    }
-
-    function getDragAfterElement(list, y) {
-      const items = [...list.querySelectorAll('.pl-item:not(.dragging)')];
-      return items.reduce((closest, child) => {
-        const box = child.getBoundingClientRect();
-        const offset = y - box.top - box.height / 2;
-        if (offset < 0 && offset > closest.offset) return { offset, element: child };
-        return closest;
-      }, { offset: -Infinity, element: null }).element;
-    }
-
-    function attachDnD(list) {
-      list.addEventListener('dragstart', (e) => {
-        const li = e.target.closest('.pl-item');
-        if (!li) return;
-        draggingActive = true;
-        li.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        try { e.dataTransfer.setData('text/plain', li.dataset.file); } catch {}
-      });
-      list.addEventListener('dragend', (e) => {
-        const li = e.target.closest('.pl-item');
-        if (li) li.classList.remove('dragging');
-        draggingActive = false;
-        syncLocal(list);
-      });
-      list.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        const dragging = list.querySelector('.pl-item.dragging');
-        if (!dragging) return;
-        const after = getDragAfterElement(list, e.clientY);
-        if (after == null) list.appendChild(dragging);
-        else list.insertBefore(dragging, after);
-      });
-    }
-
-    // ---------------------- Tarjetas de dispositivos ----------------------
-    function sectionHTML(kind, id, items) {
-      const isVideo = kind === 'video';
-      const label = isVideo
-        ? 'Videos (arrastra · ⧉ duplicar · ✕ quitar)'
-        : 'Imágenes del slider (arrastra · ⧉ duplicar · ✕ quitar)';
-      const emptyTxt = isVideo
-        ? 'Sin videos. Selecciónalos en la biblioteca y pulsa «Añadir videos».'
-        : 'Sin imágenes. Selecciónalas en la biblioteca y pulsa «Añadir imágenes».';
-      const addTxt = isVideo ? '➕ Añadir videos' : '➕ Añadir imágenes';
-      return `
-        <div class="media-section" data-kind="${kind}">
-          <label class="muted">${label}</label>
-          <ul class="playlist-list" data-kind="${kind}" data-id="${esc(id)}">${items.map(plItemHTML).join('')}</ul>
-          <div class="pl-empty muted">${emptyTxt}</div>
-          <div class="section-actions">
-            <button class="btn ghost small addsel">${addTxt}</button>
-            <button class="btn small save">Guardar</button>
-            <span class="save-hint"></span>
-          </div>
-        </div>`;
-    }
-
+    // ---------------------- Tarjetas de dispositivo (simplificadas) ----------------------
     function cardHTML(d) {
       const statusCls = d.online ? 'online' : 'offline';
       const statusTxt = d.online ? 'En Línea' : 'Fuera de Línea';
@@ -303,42 +140,13 @@
             </div>
             <span class="status ${statusCls}"><span class="led"></span>${statusTxt}</span>
           </div>
-
-          ${sectionHTML('video', d.id, d._playlist || [])}
-          ${sectionHTML('image', d.id, d._images || [])}
-
           <div class="card-actions">
-            <button class="btn ghost small rename">Renombrar</button>
-            <button class="btn danger small del">Eliminar dispositivo</button>
+            <button class="btn small edit">✏️ Editar</button>
           </div>
         </div>`;
     }
 
-    async function loadMedia() {
-      try {
-        const res = await fetch('/api/admin/media');
-        if (res.ok) {
-          const data = await res.json();
-          mediaCache = data.media || [];
-          maxUploadMB = data.maxUploadMB || 0;
-          const lbl = document.getElementById('dzLimit');
-          if (lbl) lbl.textContent = maxUploadMB
-            ? `Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp · Máx. ${maxUploadMB} MB`
-            : 'Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp';
-          videoLib.render();
-        }
-      } catch {}
-    }
-
-    async function loadImages() {
-      try {
-        const res = await fetch('/api/admin/images');
-        if (res.ok) { const data = await res.json(); imagesCache = data.images || []; imageLib.render(); }
-      } catch {}
-    }
-
     async function loadDevices() {
-      if (draggingActive) return; // no re-renderizar en mitad de un arrastre
       const res = await fetch('/api/admin/devices');
       if (res.status === 401) { location.href = '/login.html'; return; }
       const { devices } = await res.json();
@@ -346,130 +154,21 @@
       const online = devices.filter((d) => d.online).length;
       summaryEl.textContent = `${devices.length} dispositivo(s) · ${online} en línea`;
 
-      // Limpia estado local de dispositivos que ya no existen.
-      const ids = new Set(devices.map((d) => d.id));
-      Object.keys(localPlaylists).forEach((k) => {
-        const id = k.slice(k.indexOf(':') + 1);
-        if (!ids.has(id)) { delete localPlaylists[k]; dirty.delete(k); }
-      });
-
-      // Para cada dispositivo y tipo: conserva la edición local si está sin
-      // guardar; si no, refresca desde el servidor.
-      devices.forEach((d) => {
-        const kv = keyOf('video', d.id), ki = keyOf('image', d.id);
-        if (!dirty.has(kv)) localPlaylists[kv] = (d.playlist || []).slice();
-        if (!dirty.has(ki)) localPlaylists[ki] = (d.images || []).slice();
-        d._playlist = localPlaylists[kv] || [];
-        d._images = localPlaylists[ki] || [];
-      });
-
       if (!devices.length) {
         cardsEl.innerHTML = `<div class="empty">No hay dispositivos registrados.<br>
           Aparecerán automáticamente cuando un cliente envíe su primer heartbeat,
           o créalos con "+ Dispositivo".</div>`;
         return;
       }
-
       cardsEl.innerHTML = devices.map(cardHTML).join('');
-      cardsEl.querySelectorAll('.playlist-list').forEach((list) => {
-        attachDnD(list);
-        toggleEmpty(list);
-      });
     }
 
-    // ---- Eventos delegados de las tarjetas ----
-    cardsEl.addEventListener('click', async (e) => {
+    // Editar -> página de edición del dispositivo.
+    cardsEl.addEventListener('click', (e) => {
       const card = e.target.closest('.card');
       if (!card) return;
-      const id = card.dataset.id;
-
-      // Acciones a nivel de dispositivo (fuera de las secciones de medios).
-      if (e.target.classList.contains('rename')) {
-        const nombre = prompt('Nuevo nombre del dispositivo:');
-        if (nombre) {
-          await fetch('/api/admin/device', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deviceId: id, nombre }),
-          });
-          loadDevices();
-        }
-        return;
-      }
-      if (e.target.classList.contains('del')) {
-        if (confirm('¿Eliminar este dispositivo y sus listas?')) {
-          await fetch('/api/admin/device/' + encodeURIComponent(id), { method: 'DELETE' });
-          dirty.delete(keyOf('video', id)); dirty.delete(keyOf('image', id));
-          delete localPlaylists[keyOf('video', id)]; delete localPlaylists[keyOf('image', id)];
-          loadDevices();
-        }
-        return;
-      }
-
-      // Acciones dentro de una sección de medios (video o imagen).
-      const section = e.target.closest('.media-section');
-      if (!section) return;
-      const kind = section.dataset.kind;
-      const list = section.querySelector('.playlist-list');
-      const hint = section.querySelector('.save-hint');
-      const selected = kind === 'video' ? selectedMedia : selectedImages;
-
-      if (e.target.classList.contains('pl-del')) {
-        e.target.closest('.pl-item').remove();
-        syncLocal(list);
-        return;
-      }
-
-      if (e.target.classList.contains('pl-dup')) {
-        const li = e.target.closest('.pl-item');
-        li.after(makeItem(li.dataset.file));
-        syncLocal(list);
-        return;
-      }
-
-      if (e.target.classList.contains('addsel')) {
-        if (!selected.size) {
-          hint.textContent = 'Marca elementos en la biblioteca primero';
-          hint.className = 'save-hint';
-          setTimeout(() => (hint.textContent = ''), 2500);
-          return;
-        }
-        const present = new Set(playlistFromDOM(list));
-        let added = 0;
-        selected.forEach((file) => {
-          if (!present.has(file)) { list.appendChild(makeItem(file)); added++; }
-        });
-        if (added) syncLocal(list);
-        hint.textContent = added ? `+${added} añadido(s) · Guarda para aplicar` : 'Ya estaban en la lista';
-        hint.className = 'save-hint';
-        setTimeout(() => (hint.textContent = ''), 2500);
-        return;
-      }
-
-      if (e.target.classList.contains('save')) {
-        const items = playlistFromDOM(list);
-        const endpoint = kind === 'video' ? '/api/admin/playlist' : '/api/admin/imageplaylist';
-        const payload = kind === 'video' ? { deviceId: id, videos: items } : { deviceId: id, images: items };
-        hint.textContent = 'Guardando…';
-        hint.className = 'save-hint';
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const saved = kind === 'video' ? data.playlist : data.images;
-          localPlaylists[keyOf(kind, id)] = Array.isArray(saved) ? saved : items;
-          dirty.delete(keyOf(kind, id));
-          hint.textContent = '✔ Guardado';
-          hint.className = 'save-hint ok';
-        } else {
-          hint.textContent = '✖ Error';
-          hint.className = 'save-hint err';
-        }
-        setTimeout(() => (hint.textContent = ''), 2500);
-        return;
+      if (e.target.classList.contains('edit')) {
+        location.href = '/device.html?id=' + encodeURIComponent(card.dataset.id);
       }
     });
 
@@ -485,24 +184,11 @@
       loadDevices();
     });
 
-    document.getElementById('logoutBtn').addEventListener('click', async () => {
-      await fetch('/api/logout', { method: 'POST' });
-      location.href = '/login.html';
-    });
-
-    // ---- Subida (videos e imágenes) con indicador de progreso (%) ----
+    // ---------------------- Subida (videos e imágenes) ----------------------
     const uploadPanel = document.getElementById('uploadPanel');
     const fileInput = document.getElementById('fileInput');
     const imgInput = document.getElementById('imgInput');
 
-    function humanSize(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1048576) return (bytes / 1024).toFixed(0) + ' KB';
-      if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
-      return (bytes / 1073741824).toFixed(2) + ' GB';
-    }
-
-    // Sube un archivo via XHR (kind: 'video' | 'image') para leer el progreso.
     function uploadOne(file, kind) {
       return new Promise((resolve) => {
         const endpoint = kind === 'image' ? '/api/admin/images' : '/api/admin/media';
@@ -573,11 +259,9 @@
       });
     }
 
-    // Sube en serie y refresca la biblioteca correspondiente + dispositivos.
     async function uploadFiles(files, kind) {
       for (const f of files) await uploadOne(f, kind);
       if (kind === 'image') await loadImages(); else await loadMedia();
-      await loadDevices();
     }
 
     document.getElementById('uploadBtn').addEventListener('click', () => fileInput.click());
@@ -606,45 +290,19 @@
     }
 
     dropzone.addEventListener('click', () => fileInput.click());
-
     ['dragenter', 'dragover'].forEach((ev) =>
-      dropzone.addEventListener(ev, (e) => {
-        e.preventDefault();
-        dropzone.classList.add('dragover');
-      })
-    );
+      dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
     ['dragleave', 'dragend', 'drop'].forEach((ev) =>
-      dropzone.addEventListener(ev, (e) => {
-        e.preventDefault();
-        dropzone.classList.remove('dragover');
-      })
-    );
+      dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
     dropzone.addEventListener('drop', (e) => {
       const { vids, imgs } = classify(e.dataTransfer.files);
       if (vids.length) uploadFiles(vids, 'video');
       if (imgs.length) uploadFiles(imgs, 'image');
     });
-
     window.addEventListener('dragover', (e) => e.preventDefault());
     window.addEventListener('drop', (e) => e.preventDefault());
 
-    function tick() { clockEl.textContent = new Date().toLocaleTimeString('es'); }
-    setInterval(tick, 1000); tick();
-
-    // ---------------------- Sesión / Empresa / Usuarios ----------------------
-    let currentRol = null;
-
-    // Verifica la sesión y redirige a super-admins al panel que les corresponde.
-    async function checkSession() {
-      const res = await fetch('/api/me');
-      if (!res.ok) { location.href = '/login.html'; return false; }
-      const me = await res.json();
-      if (me.rol === 'super_admin') { location.href = '/superadmin.html'; return false; }
-      currentRol = me.rol;
-      return true;
-    }
-
-    // Barra de empresa: muestra el pairing code (para vincular pantallas nuevas).
+    // ---------------------- Empresa (pairing code) ----------------------
     async function loadEmpresaInfo() {
       const bar = document.getElementById('empresaBar');
       try {
@@ -666,67 +324,14 @@
       } catch {}
     }
 
-    // Usuarios (solo admin): listar/crear/activar/eliminar.
-    async function loadUsers() {
-      if (currentRol !== 'admin') return;
-      document.getElementById('usersBox').hidden = false;
-      const res = await fetch('/api/admin/users');
-      if (!res.ok) return;
-      const { users } = await res.json();
-      document.getElementById('usersCount').textContent = users.length;
-      document.getElementById('usersBody').innerHTML = users.map((u) => `
-        <tr data-id="${esc(u.id)}">
-          <td>${esc(u.usuario)}</td>
-          <td>${esc(u.rol)}</td>
-          <td><span class="status ${u.activo ? 'online' : 'offline'}"><span class="led"></span>${u.activo ? 'Activo' : 'Inactivo'}</span></td>
-          <td>
-            <button class="btn ghost small utoggle">${u.activo ? 'Desactivar' : 'Activar'}</button>
-            <button class="btn danger small udel">Eliminar</button>
-          </td>
-        </tr>`).join('');
-    }
-
-    document.getElementById('userForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const hint = document.getElementById('userHint');
-      const usuario = document.getElementById('newUser').value.trim();
-      const password = document.getElementById('newPass').value;
-      const rol = document.getElementById('newRol').value;
-      hint.textContent = 'Creando…'; hint.className = 'save-hint';
-      const res = await fetch('/api/admin/users', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usuario, password, rol }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) { hint.textContent = '✔ Creado'; hint.className = 'save-hint ok'; e.target.reset(); loadUsers(); }
-      else { hint.textContent = '✖ ' + (data.error || 'Error'); hint.className = 'save-hint err'; }
-      setTimeout(() => (hint.textContent = ''), 3000);
-    });
-
-    document.getElementById('usersBody').addEventListener('click', async (e) => {
-      const tr = e.target.closest('tr'); if (!tr) return;
-      const id = tr.dataset.id;
-      if (e.target.classList.contains('utoggle')) {
-        const activar = e.target.textContent.trim() === 'Activar';
-        await fetch('/api/admin/users/' + encodeURIComponent(id), {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ activo: activar }),
-        });
-        loadUsers();
-      }
-      if (e.target.classList.contains('udel')) {
-        if (confirm('¿Eliminar este usuario?')) {
-          await fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' });
-          loadUsers();
-        }
-      }
-    });
-
-    // Carga inicial + auto-refresco del monitoreo.
+    // ---------------------- Carga inicial ----------------------
     (async () => {
-      if (!(await checkSession())) return;
+      const me = await getMe();
+      if (!me) return;
+      renderTopnav('dispositivos', me.rol);
+      startClock('clock');
+      wireLogout('logoutBtn');
       await loadEmpresaInfo();
-      await loadUsers();
       await loadMedia();
       await loadImages();
       await loadDevices();

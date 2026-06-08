@@ -6,9 +6,6 @@
   <title>DigiSignage Player</title>
   <style>
     :root {
-      --slider-w: 340px;   /* ancho de la columna del slider */
-      --bottom-h: 140px;   /* alto de la franja inferior */
-      --gap: 4px;
       --bg: #000;
       --panel: #0e1320;
       --text: #e6edf3;
@@ -23,239 +20,118 @@
       font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
     }
 
-    /* ---- Cuadrícula 2×2 de zonas ---- */
+    /* Lienzo fijo de 1920×1080 escalado para llenar la pantalla real (signage):
+       el diseño se ve idéntico en cualquier resolución; si la pantalla no es
+       16:9 aparecen barras negras (no se deforma). */
+    #stage {
+      position: absolute; top: 50%; left: 50%;
+      width: 1920px; height: 1080px;
+      transform: translate(-50%, -50%);
+      transform-origin: center center;
+    }
+    /* La grilla se configura dinámicamente segun el preset del layout. */
     #app {
       display: grid;
-      width: 100vw; height: 100vh;
-      gap: var(--gap);
+      width: 1920px; height: 1080px;
+      gap: 0;
       background: #000;
-      grid-template-columns: 1fr var(--slider-w);
-      grid-template-rows: 1fr var(--bottom-h);
-      grid-template-areas:
-        "video   slider"
-        "weather clock";
     }
     .zone { position: relative; overflow: hidden; background: var(--panel); }
 
-    /* ---- Zona 1: Video ---- */
-    #video { grid-area: video; background: #000; }
-    #player {
+    /* ---- Widget: Video ---- */
+    .w-video { background: #000; }
+    .w-video .player {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: contain; background: #000;
     }
-    #idle {
+    .w-video .idle {
       position: absolute; inset: 0; display: none;
       align-items: center; justify-content: center;
       color: #3a4253; font-size: 22px;
     }
-    #idle.show { display: flex; }
+    .w-video .idle.show { display: flex; }
 
-    /* ---- Zona 2: Slider de imágenes ---- */
-    #slider { grid-area: slider; background: #000; }
-    .slide {
+    /* ---- Widget: Imágenes (estática / slider) ---- */
+    .w-imagenes { background: #000; }
+    .w-imagenes .slide {
       position: absolute; inset: 0;
       background-size: contain; background-position: center; background-repeat: no-repeat;
       opacity: 0; transition: opacity 0.8s ease;
     }
-    .slide.show { opacity: 1; }
-    #sliderEmpty {
+    .w-imagenes .slide.show { opacity: 1; }
+    .w-imagenes .slider-empty {
       position: absolute; inset: 0; display: none;
       align-items: center; justify-content: center;
       color: #3a4253; font-size: 14px; text-align: center; padding: 12px;
     }
-    #sliderEmpty.show { display: flex; }
+    .w-imagenes .slider-empty.show { display: flex; }
 
-    /* ---- Zona 3: Fecha y hora (bajo el slider) ---- */
-    #clock {
-      grid-area: clock;
+    /* ---- Widget: Reloj ---- */
+    .w-reloj {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 4px; background: linear-gradient(180deg, #131a2b, #0c111c);
     }
-    #time { font-size: clamp(28px, 4.5vw, 52px); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
-    #date { font-size: clamp(12px, 1.3vw, 18px); color: var(--muted); text-transform: capitalize; text-align: center; }
+    .w-reloj .time { font-size: clamp(28px, 4.5vw, 52px); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+    .w-reloj .date { font-size: clamp(12px, 1.3vw, 18px); color: var(--muted); text-transform: capitalize; text-align: center; }
 
-    /* ---- Zona 4: Clima (franja bajo el video) ---- */
-    #weather {
-      grid-area: weather;
+    /* ---- Widget: Clima ---- */
+    .w-clima {
       display: flex; align-items: center; gap: 24px; padding: 0 28px;
       background: linear-gradient(180deg, #14233c, #0c1422);
     }
-    #weather .wx-icon { font-size: clamp(36px, 5vw, 64px); line-height: 1; }
-    #weather .wx-temp { font-size: clamp(30px, 4.5vw, 56px); font-weight: 700; font-variant-numeric: tabular-nums; }
-    #weather .wx-info { display: flex; flex-direction: column; gap: 2px; }
-    #weather .wx-city { font-size: clamp(14px, 1.6vw, 22px); font-weight: 600; }
-    #weather .wx-cond { font-size: clamp(12px, 1.3vw, 18px); color: var(--muted); }
-    #weather .wx-extra { margin-left: auto; text-align: right; color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); line-height: 1.6; }
-    #weather .wx-badge {
-      font-size: 10px; color: #fff; background: rgba(59,130,246,0.5);
-      border-radius: 4px; padding: 1px 6px; vertical-align: middle;
-    }
+    .w-clima .wx-icon { font-size: clamp(36px, 5vw, 64px); line-height: 1; }
+    .w-clima .wx-temp { font-size: clamp(30px, 4.5vw, 56px); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .w-clima .wx-info { display: flex; flex-direction: column; gap: 2px; }
+    .w-clima .wx-city { font-size: clamp(14px, 1.6vw, 22px); font-weight: 600; }
+    .w-clima .wx-cond { font-size: clamp(12px, 1.3vw, 18px); color: var(--muted); }
+    .w-clima .wx-extra { margin-left: auto; text-align: right; color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); line-height: 1.6; }
   </style>
 </head>
 <body>
-  <div id="app">
-    <!-- Zona 1: Video -->
-    <div id="video" class="zone">
-      <video id="player" autoplay playsinline></video>
-      <div id="idle">Esperando contenido…</div>
-    </div>
-
-    <!-- Zona 2: Slider de imágenes -->
-    <div id="slider" class="zone">
-      <div class="slide" id="slideA"></div>
-      <div class="slide" id="slideB"></div>
-      <div id="sliderEmpty" class="show">Sin imágenes asignadas</div>
-    </div>
-
-    <!-- Zona 4: Clima (Open-Meteo) -->
-    <div id="weather" class="zone">
-      <div class="wx-icon" id="wxIcon">🌡️</div>
-      <div class="wx-temp" id="wxTemp">--°</div>
-      <div class="wx-info">
-        <div class="wx-city" id="wxCity">—</div>
-        <div class="wx-cond" id="wxCond">Cargando clima…</div>
-      </div>
-      <div class="wx-extra" id="wxExtra"></div>
-    </div>
-
-    <!-- Zona 3: Fecha y hora -->
-    <div id="clock" class="zone">
-      <div id="time">--:--:--</div>
-      <div id="date">—</div>
-    </div>
-  </div>
+  <div id="stage"><div id="app"></div></div>
 
   <script>
     // ====================================================================
-    //  Reproductor multi-zona (Android WebView)
-    //  - Zona video: playlist de video (bridge 'playlist', URLs media/).
-    //  - Zona slider: imágenes en bucle (bridge 'images', URLs img/).
-    //  - Zona reloj: fecha/hora local.
-    //  - Zona clima: datos reales de Open-Meteo recibidos desde Kotlin.
-    //
-    //  El proceso nativo (MainActivity) empuja datos llamando a
-    //  window.__signage.playlist([...]) / .images([...]) / .settings({...}) /
-    //  .weather({...}) mediante evaluateJavascript.
-    //  Las URLs media/ e img/ se resuelven contra el mismo origen sintético
-    //  (https://appassets.local/) que sirve el WebViewClient nativo, con
-    //  soporte de peticiones por rango para que el <video> reproduzca bien.
+    //  Reproductor por WIDGETS (Android WebView)
+    //  - El servidor define un LAYOUT: un preset de zonas y, en cada zona,
+    //    un widget con su config. Llega por el bridge nativo ('layout').
+    //  - Cada widget se "monta" en su zona y se "destruye" al cambiar el
+    //    layout (libera timers / video). El catalogo es extensible.
+    //  - El clima llega por su canal ('weather'); el widget de clima se
+    //    suscribe a esas actualizaciones.
+    //  Las URLs media/ e img/ se resuelven contra el origen sintético que
+    //  sirve el WebViewClient nativo (con soporte de rangos para el video).
     // ====================================================================
 
     const MEDIA_BASE = 'https://appassets.local/media/';
     const IMG_BASE = 'https://appassets.local/img/';
 
-    let imageSeconds = 6;
+    const app = document.getElementById('app');
+    const stage = document.getElementById('stage');
 
-    // ------------------------- Zona 1: Video -------------------------
-    const video = document.getElementById('player');
-    const idle = document.getElementById('idle');
-    let playlist = [], vIndex = 0, vSignature = '';
-
-    function setIdle(on) { idle.classList.toggle('show', on); }
-
-    function playCurrent() {
-      if (!playlist.length) { setIdle(true); return; }
-      if (vIndex >= playlist.length) vIndex = 0;
-      setIdle(false);
-      const file = playlist[vIndex];
-      video.src = MEDIA_BASE + encodeURIComponent(file);
-      video.muted = false;
-      video.volume = 1.0;
-      video.load();
-      const p = video.play();
-      if (p && p.catch) p.catch((err) => {
-        console.warn('play() con audio bloqueado, reintentando en silencio:', err.message);
-        video.muted = true;
-        const p2 = video.play();
-        if (p2 && p2.catch) p2.catch((e2) => console.warn('play() bloqueado:', e2.message));
-      });
+    // Escala el lienzo 1920×1080 para llenar la pantalla real manteniendo la
+    // proporción. Así el contenido se ve igual sin importar la resolución del
+    // dispositivo (en 1080p el factor es 1; en 720p o 4K escala proporcional).
+    function fitStage() {
+      const s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+      stage.style.transform = `translate(-50%, -50%) scale(${s})`;
     }
+    window.addEventListener('resize', fitStage);
+    fitStage();
 
-    function vNext() {
-      vIndex++;
-      if (vIndex >= playlist.length) vIndex = 0;
-      playCurrent();
-    }
+    // Presets: deben coincidir con server/layouts.js (grid CSS + slots).
+    const PRESETS = {
+      'solo':           { columns: '1fr',       rows: '1fr',       areas: '"a"',          slots: ['a'] },
+      'dos-iguales':    { columns: '1fr 1fr',   rows: '1fr',       areas: '"a b"',        slots: ['a', 'b'] },
+      'dos-asimetrico': { columns: '2fr 570px', rows: '1fr',       areas: '"a b"',        slots: ['a', 'b'] },
+      'cuatro':         { columns: '1fr 400px', rows: '1fr 225px', areas: '"a b" "c d"',  slots: ['a', 'b', 'c', 'd'] },
+    };
 
-    function applyPlaylist(videos) {
-      videos = Array.isArray(videos) ? videos : [];
-      const sig = JSON.stringify(videos);
-      if (sig === vSignature) return;
-      vSignature = sig;
-      const estabaSinReproducir = !playlist.length || video.paused || video.ended;
-      playlist = videos;
-      if (!playlist.length) { setIdle(true); return; }
-      if (estabaSinReproducir) { vIndex = 0; playCurrent(); }
-    }
+    // ------------------------- Clima (estado + suscriptores) -------------------------
+    let lastWeather = null;
+    const weatherSubscribers = new Set();
 
-    video.addEventListener('ended', vNext);
-    video.addEventListener('error', () => { console.warn('Error de video -> siguiente'); setTimeout(vNext, 1500); });
-
-    let vLastTime = 0, vStalled = 0;
-    setInterval(() => {
-      if (!playlist.length || video.paused || video.ended) return;
-      if (video.currentTime === vLastTime) { if (++vStalled >= 5) { vStalled = 0; vNext(); } }
-      else { vStalled = 0; vLastTime = video.currentTime; }
-    }, 2000);
-
-    // ------------------------- Zona 2: Slider -------------------------
-    const slideA = document.getElementById('slideA');
-    const slideB = document.getElementById('slideB');
-    const sliderEmpty = document.getElementById('sliderEmpty');
-    let images = [], iIndex = 0, iSignature = '', sliderTimer = null, frontSlide = slideA;
-
-    function showSlide(file) {
-      const back = frontSlide === slideA ? slideB : slideA;
-      back.style.backgroundImage = `url("${IMG_BASE}${encodeURIComponent(file)}")`;
-      back.classList.add('show');
-      frontSlide.classList.remove('show');
-      frontSlide = back;
-    }
-
-    function sliderTick() {
-      if (!images.length) return;
-      showSlide(images[iIndex]);
-      iIndex = (iIndex + 1) % images.length;
-    }
-
-    function startSlider() {
-      if (sliderTimer) clearInterval(sliderTimer);
-      if (!images.length) {
-        sliderEmpty.classList.add('show');
-        slideA.classList.remove('show'); slideB.classList.remove('show');
-        return;
-      }
-      sliderEmpty.classList.remove('show');
-      iIndex = 0;
-      sliderTick();                 // primera imagen inmediata
-      sliderTimer = setInterval(sliderTick, imageSeconds * 1000);
-    }
-
-    function applyImages(list) {
-      list = Array.isArray(list) ? list : [];
-      const sig = JSON.stringify(list);
-      if (sig === iSignature) return;
-      iSignature = sig;
-      images = list;
-      startSlider();
-    }
-
-    // ------------------------- Zona 3: Reloj -------------------------
-    const timeEl = document.getElementById('time');
-    const dateEl = document.getElementById('date');
-    function tickClock() {
-      const now = new Date();
-      timeEl.textContent = now.toLocaleTimeString('es');
-      dateEl.textContent = now.toLocaleDateString('es', {
-        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-      });
-    }
-    setInterval(tickClock, 1000); tickClock();
-
-    // ------------------------- Zona 4: Clima -------------------------
-    // Recibe el clima real (Open-Meteo) desde el proceso nativo por el bridge.
-    // Mapea el codigo WMO a un icono y una descripcion en español.
     function wxCodeInfo(code, isDay) {
       const map = {
         0: ['Despejado', isDay ? '☀️' : '🌙'],
@@ -277,39 +153,205 @@
 
     function applyWeather(w) {
       if (!w) return;
-      const [cond, icon] = wxCodeInfo(w.code, w.isDay);
-      document.getElementById('wxIcon').textContent = icon;
-      document.getElementById('wxTemp').textContent =
-        (w.temp == null || Number.isNaN(w.temp) ? '--' : w.temp) + '°';
-      document.getElementById('wxCity').textContent = w.city || '';
-      document.getElementById('wxCond').textContent = cond;
-      const extra = [];
-      if (w.max != null && w.min != null) extra.push(`Máx ${w.max}° · Mín ${w.min}°`);
-      const hw = [];
-      if (w.humidity != null) hw.push(`Humedad ${w.humidity}%`);
-      if (w.wind != null) hw.push(`Viento ${w.wind} km/h`);
-      if (hw.length) extra.push(hw.join(' · '));
-      document.getElementById('wxExtra').innerHTML = extra.join('<br>');
+      lastWeather = w;
+      weatherSubscribers.forEach((fn) => { try { fn(w); } catch {} });
+    }
+
+    // ------------------------- Catalogo de widgets -------------------------
+    // Cada factory monta el widget en `zone` y devuelve { destroy() }.
+
+    function createVideo(zone, config) {
+      zone.classList.add('w-video');
+      zone.innerHTML = '<video class="player" autoplay playsinline></video><div class="idle">Esperando contenido…</div>';
+      const video = zone.querySelector('.player');
+      const idle = zone.querySelector('.idle');
+      const playlist = Array.isArray(config.items) ? config.items.slice() : [];
+      let vIndex = 0;
+
+      const setIdle = (on) => idle.classList.toggle('show', on);
+
+      function playCurrent() {
+        if (!playlist.length) { setIdle(true); return; }
+        if (vIndex >= playlist.length) vIndex = 0;
+        setIdle(false);
+        video.src = MEDIA_BASE + encodeURIComponent(playlist[vIndex]);
+        video.muted = false; video.volume = 1.0;
+        video.load();
+        const p = video.play();
+        if (p && p.catch) p.catch(() => {
+          video.muted = true;
+          const p2 = video.play();
+          if (p2 && p2.catch) p2.catch((e) => console.warn('play() bloqueado:', e.message));
+        });
+      }
+      function vNext() { vIndex = (vIndex + 1) % Math.max(playlist.length, 1); playCurrent(); }
+
+      const onEnded = () => vNext();
+      const onError = () => { console.warn('Error de video -> siguiente'); setTimeout(vNext, 1500); };
+      video.addEventListener('ended', onEnded);
+      video.addEventListener('error', onError);
+
+      let vLastTime = 0, vStalled = 0;
+      const stall = setInterval(() => {
+        if (!playlist.length || video.paused || video.ended) return;
+        if (video.currentTime === vLastTime) { if (++vStalled >= 5) { vStalled = 0; vNext(); } }
+        else { vStalled = 0; vLastTime = video.currentTime; }
+      }, 2000);
+
+      if (!playlist.length) setIdle(true); else { vIndex = 0; playCurrent(); }
+
+      return {
+        destroy() {
+          clearInterval(stall);
+          video.removeEventListener('ended', onEnded);
+          video.removeEventListener('error', onError);
+          try { video.pause(); video.removeAttribute('src'); video.load(); } catch {}
+        },
+      };
+    }
+
+    function createImagenes(zone, config) {
+      zone.classList.add('w-imagenes');
+      zone.innerHTML = '<div class="slide a"></div><div class="slide b"></div><div class="slider-empty">Sin imágenes asignadas</div>';
+      const slideA = zone.querySelector('.slide.a');
+      const slideB = zone.querySelector('.slide.b');
+      const empty = zone.querySelector('.slider-empty');
+      const items = Array.isArray(config.items) ? config.items : [];
+      const modo = config.modo === 'estatica' ? 'estatica' : 'slider';
+      let front = slideA, idx = 0, timer = null;
+
+      function show(file) {
+        const back = front === slideA ? slideB : slideA;
+        back.style.backgroundImage = `url("${IMG_BASE}${encodeURIComponent(file)}")`;
+        back.classList.add('show');
+        front.classList.remove('show');
+        front = back;
+      }
+      function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
+      function scheduleNext() {
+        clearTimer();
+        if (modo !== 'slider' || items.length <= 1) return;
+        const secs = Number(items[idx] && items[idx].segundos) > 0 ? Number(items[idx].segundos) : 6;
+        timer = setTimeout(() => {
+          idx = (idx + 1) % items.length;
+          show(items[idx].file);
+          scheduleNext();
+        }, secs * 1000);
+      }
+
+      if (!items.length) {
+        empty.classList.add('show');
+      } else {
+        empty.classList.remove('show');
+        idx = 0;
+        show(items[0].file);
+        scheduleNext();
+      }
+
+      return { destroy() { clearTimer(); } };
+    }
+
+    function createReloj(zone) {
+      zone.classList.add('w-reloj');
+      zone.innerHTML = '<div class="time">--:--:--</div><div class="date">—</div>';
+      const t = zone.querySelector('.time');
+      const d = zone.querySelector('.date');
+      function tick() {
+        const now = new Date();
+        t.textContent = now.toLocaleTimeString('es');
+        d.textContent = now.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      }
+      tick();
+      const iv = setInterval(tick, 1000);
+      return { destroy() { clearInterval(iv); } };
+    }
+
+    function createClima(zone) {
+      zone.classList.add('w-clima');
+      zone.innerHTML = `
+        <div class="wx-icon">🌡️</div>
+        <div class="wx-temp">--°</div>
+        <div class="wx-info">
+          <div class="wx-city">—</div>
+          <div class="wx-cond">Cargando clima…</div>
+        </div>
+        <div class="wx-extra"></div>`;
+      const q = (c) => zone.querySelector(c);
+      function render(w) {
+        if (!w) return;
+        const [cond, icon] = wxCodeInfo(w.code, w.isDay);
+        q('.wx-icon').textContent = icon;
+        q('.wx-temp').textContent = (w.temp == null || Number.isNaN(w.temp) ? '--' : w.temp) + '°';
+        q('.wx-city').textContent = w.city || '';
+        q('.wx-cond').textContent = cond;
+        const extra = [];
+        if (w.max != null && w.min != null) extra.push(`Máx ${w.max}° · Mín ${w.min}°`);
+        const hw = [];
+        if (w.humidity != null) hw.push(`Humedad ${w.humidity}%`);
+        if (w.wind != null) hw.push(`Viento ${w.wind} km/h`);
+        if (hw.length) extra.push(hw.join(' · '));
+        q('.wx-extra').innerHTML = extra.join('<br>');
+      }
+      if (lastWeather) render(lastWeather);
+      weatherSubscribers.add(render);
+      return { destroy() { weatherSubscribers.delete(render); } };
+    }
+
+    const WIDGETS = {
+      video: createVideo,
+      imagenes: createImagenes,
+      reloj: createReloj,
+      clima: createClima,
+    };
+
+    // ------------------------- Aplicacion del layout -------------------------
+    let instances = [];
+    let layoutSig = '';
+
+    function applyLayout(layout) {
+      if (!layout || !layout.preset) return;
+      const sig = JSON.stringify(layout);
+      if (sig === layoutSig) return; // sin cambios: no reconstruir
+      layoutSig = sig;
+
+      instances.forEach((i) => { try { i && i.destroy && i.destroy(); } catch {} });
+      instances = [];
+
+      const preset = PRESETS[layout.preset] || PRESETS.cuatro;
+      app.style.gridTemplateColumns = preset.columns;
+      app.style.gridTemplateRows = preset.rows;
+      app.style.gridTemplateAreas = preset.areas;
+      app.innerHTML = '';
+
+      preset.slots.forEach((slot) => {
+        const z = layout.zones && layout.zones[slot];
+        const zoneEl = document.createElement('div');
+        zoneEl.className = 'zone';
+        zoneEl.style.gridArea = slot;
+        app.appendChild(zoneEl);
+        const factory = z && WIDGETS[z.widget];
+        if (factory) {
+          try { instances.push(factory(zoneEl, (z && z.config) || {})); }
+          catch (e) { console.warn('Widget', z && z.widget, 'fallo:', e.message); }
+        }
+      });
     }
 
     // ------------------------- Bridge nativo -------------------------
-    // Reemplaza el IPC de Electron: Kotlin invoca estas funciones con
-    // evaluateJavascript. Aceptan arrays/objetos o cadenas JSON (por robustez).
+    // Kotlin invoca estas funciones con evaluateJavascript. Aceptan objetos o
+    // cadenas JSON (por robustez). Los canales playlist/images/settings ya no se
+    // usan para el render pero se conservan como no-op (Kotlin aun los emite).
     function asData(x) {
       if (typeof x === 'string') { try { return JSON.parse(x); } catch { return x; } }
       return x;
     }
     window.__signage = {
-      playlist: (v) => applyPlaylist(asData(v)),
-      images: (v) => applyImages(asData(v)),
-      weather: (v) => applyWeather(asData(v)),
-      settings: (s) => {
-        s = asData(s);
-        if (s && Number(s.imageSeconds) > 0) { imageSeconds = Number(s.imageSeconds); startSlider(); }
-      },
+      layout: (l) => applyLayout(asData(l)),
+      weather: (w) => applyWeather(asData(w)),
+      playlist: () => {},
+      images: () => {},
+      settings: () => {},
     };
-
-    setIdle(true);
   </script>
 </body>
 </html>

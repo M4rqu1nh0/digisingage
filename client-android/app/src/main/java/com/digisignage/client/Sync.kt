@@ -32,10 +32,13 @@ object Sync {
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
-    /** Resultado del heartbeat: listas pedidas por el servidor (nombres o URLs). */
-    data class Heartbeat(val playlist: List<String>, val images: List<String>)
+    /**
+     * Resultado del heartbeat: listas a sincronizar (nombres o URLs) y el layout
+     * crudo (JSON) que se reenvia al reproductor para construir las zonas.
+     */
+    data class Heartbeat(val playlist: List<String>, val images: List<String>, val layout: String?)
 
-    /** POST /api/heartbeat -> { playlist[], images[] }. Lanza excepción si falla. */
+    /** POST /api/heartbeat -> { layout, playlist[], images[] }. Lanza excepción si falla. */
     fun heartbeat(serverUrl: String, deviceId: String, deviceName: String, pairingCode: String): Heartbeat {
         val body = JSONObject()
             .put("deviceId", deviceId)
@@ -55,6 +58,7 @@ object Sync {
             return Heartbeat(
                 playlist = toStringList(json.optJSONArray("playlist")),
                 images = toStringList(json.optJSONArray("images")),
+                layout = json.optJSONObject("layout")?.toString(),
             )
         }
     }

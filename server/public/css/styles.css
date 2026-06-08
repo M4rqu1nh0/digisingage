@@ -114,7 +114,30 @@ input:focus { border-color: var(--accent); }
   z-index: 10;
 }
 .topbar .right { display: flex; align-items: center; gap: 14px; }
+.topbar .left { display: flex; align-items: center; gap: 22px; }
 .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.container.wide { max-width: 1400px; }
+
+/* Menú superior */
+.nav { display: flex; align-items: center; gap: 6px; }
+.nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+.nav a:hover { color: var(--text); background: var(--panel-2); }
+.nav a.active { color: var(--text); background: var(--panel-2); }
+
+/* Enlace de volver (página de edición) */
+.backlink { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; }
+.backlink:hover { color: var(--text); }
+
+/* Bibliotecas lado a lado (device.html); colapsa a 1 columna en pantallas chicas */
+.lib-grid { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 860px) { .lib-grid { grid-template-columns: 1fr; } }
 
 .toolbar {
   display: flex;
@@ -246,8 +269,9 @@ details.media-box summary { cursor: pointer; font-size: 12px; color: var(--muted
 }
 .lib-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .lib-table tbody tr:hover { background: var(--panel-2); }
-.lib-table .col-check { width: 34px; text-align: center; }
+.lib-table .col-check { width: 34px; text-align: center; vertical-align: top; }
 .lib-name { word-break: break-all; }
+.lib-meta { color: var(--muted); font-size: 11px; margin-top: 2px; word-break: break-all; }
 .lib-empty { padding: 14px 4px; }
 
 input[type="checkbox"] {
@@ -296,6 +320,53 @@ input[type="checkbox"] {
 .pl-dup:hover { background: rgba(59, 130, 246, 0.15); color: var(--accent); }
 .pl-del:hover { background: rgba(239, 68, 68, 0.15); color: var(--red); }
 .pl-empty { padding: 10px 4px; font-style: italic; }
+
+/* Tiempo por imagen (segundos) en el item del slider */
+.pl-secs { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+.pl-secs-input {
+  width: 52px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 3px 6px;
+  font-size: 12px;
+  text-align: right;
+}
+
+/* ----------------- Editor de layout (zonas + widgets) ----------------- */
+.layout-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; }
+.preset-select, .widget-select, .modo-select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.zones-wrap { display: flex; flex-direction: column; gap: 12px; }
+.zone-edit {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--panel-2);
+}
+.zone-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.zone-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.zone-config .media-section { margin: 0; }
+.img-modo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.modo-hint { font-size: 12px; }
+.widget-note { padding: 8px 4px; font-style: italic; }
 
 /* ----------------- Drag & drop ----------------- */
 .dropzone {
