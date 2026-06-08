@@ -21,6 +21,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
+const layouts = require('./layouts');
 
 // Ruta configurable (util para tests y para un disco persistente en Render).
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'signage.db');
@@ -90,6 +91,11 @@ if (!dispCols.some((c) => c.name === 'empresa_id')) {
   db.exec('ALTER TABLE dispositivos ADD COLUMN empresa_id TEXT');
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_dispositivos_empresa ON dispositivos (empresa_id)');
+
+// --- Migracion: anade layout_json a dispositivos (layout por widgets/zonas) ---
+if (!dispCols.some((c) => c.name === 'layout_json')) {
+  db.exec('ALTER TABLE dispositivos ADD COLUMN layout_json TEXT');
+}
 
 // ----------------------------- Hashing (scrypt) -----------------------------
 // Sin dependencias nativas: usamos crypto.scrypt (incluido en Node).
@@ -168,6 +174,8 @@ const stmts = {
 
   renameDevice: db.prepare('UPDATE dispositivos SET nombre = ? WHERE id = ? AND empresa_id = ?'),
 
+  setLayout: db.prepare('UPDATE dispositivos SET layout_json = ? WHERE id = ?'),
+
   listDevicesByEmpresa: db.prepare(
     'SELECT * FROM dispositivos WHERE empresa_id = ? ORDER BY nombre COLLATE NOCASE'
   ),
@@ -177,6 +185,9 @@ const stmts = {
   // Migracion: dispositivos sin empresa.
   listOrphanDevices: db.prepare('SELECT id FROM dispositivos WHERE empresa_id IS NULL'),
   assignDeviceEmpresa: db.prepare('UPDATE dispositivos SET empresa_id = ? WHERE id = ?'),
+
+  // Migracion: dispositivos sin layout_json (esquema anterior).
+  listDevicesNoLayout: db.prepare('SELECT id FROM dispositivos WHERE layout_json IS NULL'),
 
   // --- Playlists ---
   getPlaylist: db.prepare(`
@@ -324,6 +335,43 @@ function getImagePlaylistArray(deviceId) {
   return stmts.getImagePlaylist.all(deviceId).map((r) => r.imagen);
 }
 
+// ----------------------------- Layout (zonas + widgets) -----------------------------
+
+/**
+ * Devuelve el layout de un dispositivo como objeto. Si la columna esta vacia
+ * (dispositivo antiguo aun no migrado), lo deriva de las listas por-dispositivo
+ * para no perder contenido. Nunca devuelve null si el dispositivo existe.
+ */
+function getLayout(deviceId) {
+  const dev = stmts.getDevice.get(deviceId);
+  if (!dev) return null;
+  if (dev.layout_json) {
+    try {
+      return layouts.validateLayout(JSON.parse(dev.layout_json));
+    } catch {
+      /* JSON corrupto: cae a la derivacion de abajo */
+    }
+  }
+  return layouts.migrateFromPlaylists(
+    getPlaylistArray(deviceId),
+    getImagePlaylistArray(deviceId)
+  );
+}
+
+/**
+ * Guarda el layout de un dispositivo (acotado a la empresa). Valida con el
+ * catalogo (incluida la regla de <=1 zona con video) y persiste el JSON
+ * normalizado. Devuelve el layout guardado, o null si el dispositivo es de otra
+ * empresa. Lanza layouts.LayoutError si el layout es invalido.
+ */
+const saveLayout = db.transaction((empresaId, deviceId, layout) => {
+  const dev = ensureDeviceInEmpresa(empresaId, deviceId);
+  if (!dev) return null; // dispositivo de otra empresa
+  const normalized = layouts.validateLayout(layout);
+  stmts.setLayout.run(JSON.stringify(normalized), deviceId);
+  return normalized;
+});
+
 /** Asegura que el dispositivo exista y pertenezca a la empresa. Devuelve el registro o null. */
 function ensureDeviceInEmpresa(empresaId, deviceId) {
   const existing = stmts.getDevice.get(deviceId);
@@ -354,17 +402,16 @@ const heartbeat = db.transaction((deviceId, ip, nombreSugerido, pairingCode) => 
 
   if (existing) {
     stmts.touchDevice.run({ id: deviceId, ultima_conexion: now, ip_actual: ip });
-    return {
-      empresaId: existing.empresa_id,
-      playlist: getPlaylistArray(deviceId),
-      images: getImagePlaylistArray(deviceId),
-    };
+    const layout = getLayout(deviceId);
+    const { videos, images } = layouts.flattenMedia(layout);
+    return { empresaId: existing.empresa_id, layout, playlist: videos, images };
   }
 
   // Dispositivo nuevo: requiere emparejamiento.
   const empresa = getEmpresaByPairingCode(pairingCode);
   if (!empresa || !empresa.activa) return null;
 
+  const layout = layouts.defaultLayout();
   stmts.insertDevice.run({
     id: deviceId,
     empresa_id: empresa.id,
@@ -372,12 +419,10 @@ const heartbeat = db.transaction((deviceId, ip, nombreSugerido, pairingCode) => 
     ultima_conexion: now,
     ip_actual: ip,
   });
+  stmts.setLayout.run(JSON.stringify(layout), deviceId);
 
-  return {
-    empresaId: empresa.id,
-    playlist: getPlaylistArray(deviceId),
-    images: getImagePlaylistArray(deviceId),
-  };
+  const { videos, images } = layouts.flattenMedia(layout);
+  return { empresaId: empresa.id, layout, playlist: videos, images };
 });
 
 // ----------------------------- Dispositivos (admin) -----------------------------
@@ -428,8 +473,7 @@ function listDevicesWithStatus(empresaId, onlineWindowMin) {
       ip_actual: d.ip_actual,
       ultima_conexion: d.ultima_conexion,
       online,
-      playlist: getPlaylistArray(d.id),
-      images: getImagePlaylistArray(d.id),
+      layout: getLayout(d.id),
     };
   });
 }
@@ -510,6 +554,15 @@ const ensureSeed = db.transaction((opts) => {
     });
   }
 
+  // 3) Migracion: dispositivos sin layout -> deriva preset "cuatro" de sus listas.
+  for (const { id } of stmts.listDevicesNoLayout.all()) {
+    const layout = layouts.migrateFromPlaylists(
+      getPlaylistArray(id),
+      getImagePlaylistArray(id)
+    );
+    stmts.setLayout.run(JSON.stringify(layout), id);
+  }
+
   return { defaultEmpresaId };
 });
 
@@ -540,6 +593,10 @@ module.exports = {
   saveImagePlaylist,
   getPlaylistArray,
   getImagePlaylistArray,
+  // layout (zonas + widgets)
+  getLayout,
+  saveLayout,
+  layouts,
   listDevicesWithStatus,
   renameDevice,
   deleteDevice,

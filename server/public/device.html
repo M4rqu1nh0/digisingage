@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DigiSignage · Editar pantalla</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="left">
+      <div class="brand"><span class="dot"></span> DigiSignage</div>
+      <a class="backlink" href="/dashboard.html">← Volver a Dispositivos</a>
+    </div>
+    <div class="right">
+      <span class="muted" id="clock"></span>
+      <button class="btn ghost small" id="logoutBtn">Salir</button>
+    </div>
+  </div>
+
+  <div class="container wide">
+    <!-- Cabecera del dispositivo -->
+    <div class="toolbar">
+      <div>
+        <h2 id="devName">Cargando…</h2>
+        <div class="muted" id="devMeta"></div>
+      </div>
+      <div class="right" style="display:flex; gap:8px; align-items:center;">
+        <span class="status offline" id="devStatus" hidden><span class="led"></span></span>
+        <button class="btn ghost small" id="renameBtn">Renombrar</button>
+        <button class="btn danger small" id="deleteBtn">Eliminar</button>
+      </div>
+    </div>
+
+    <div id="notFound" class="empty" hidden>Dispositivo no encontrado en tu empresa.</div>
+
+    <div id="editorWrap" hidden>
+      <!-- Bibliotecas disponibles (origen de medios para las zonas) -->
+      <div class="lib-grid">
+        <details class="library" open>
+          <summary>
+            <span>📚 Biblioteca de videos (<span id="libCount">0</span>)</span>
+            <span class="muted" id="libSelInfo">0 seleccionado(s)</span>
+          </summary>
+          <div class="lib-wrap">
+            <table class="lib-table">
+              <thead>
+                <tr>
+                  <th class="col-check"><input type="checkbox" id="libSelectAll" title="Seleccionar todos" /></th>
+                  <th>Nombre del archivo</th>
+                </tr>
+              </thead>
+              <tbody id="libBody"></tbody>
+            </table>
+            <div class="lib-empty muted" id="libEmpty">Aún no hay videos. Súbelos desde Dispositivos.</div>
+          </div>
+        </details>
+
+        <details class="library" open>
+          <summary>
+            <span>🖼️ Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span>
+            <span class="muted" id="imgLibSelInfo">0 seleccionado(s)</span>
+          </summary>
+          <div class="lib-wrap">
+            <table class="lib-table">
+              <thead>
+                <tr>
+                  <th class="col-check"><input type="checkbox" id="imgLibSelectAll" title="Seleccionar todas" /></th>
+                  <th>Nombre del archivo</th>
+                </tr>
+              </thead>
+              <tbody id="imgLibBody"></tbody>
+            </table>
+            <div class="lib-empty muted" id="imgLibEmpty">Aún no hay imágenes. Súbelas desde Dispositivos.</div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Editor de disposición + contenido por zona -->
+      <div class="library" style="margin-top:18px;">
+        <div class="toolbar" style="margin-bottom:12px;">
+          <h2 style="font-size:16px;">Disposición y contenido</h2>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="btn" id="saveBtn">Guardar layout</button>
+            <span class="save-hint" id="saveHint"></span>
+          </div>
+        </div>
+        <div class="layout-editor" id="editor"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const deviceId = params.get('id') || '';
+
+    let mediaCache = [];
+    let imagesCache = [];
+    const selectedMedia = new Set();
+    const selectedImages = new Set();
+
+    let presetsCatalog = {};
+    let widgetsCatalog = {};
+
+    const DEFAULT_IMAGE_SECONDS = 6;
+    const clone = (o) => JSON.parse(JSON.stringify(o));
+
+    const editorEl = document.getElementById('editor');
+
+    // ---------------------- Bibliotecas (con checkboxes) ----------------------
+    function createLibrary({ cache, selected, ids }) {
+      const el = (k) => document.getElementById(ids[k]);
+      function info() {
+        el('selInfo').textContent = `${selected.size} seleccionado(s)`;
+        const all = el('selectAll');
+        all.checked = cache().length > 0 && selected.size === cache().length;
+        all.indeterminate = selected.size > 0 && selected.size < cache().length;
+      }
+      function render() {
+        const arr = cache();
+        el('count').textContent = arr.length;
+        [...selected].forEach((f) => { if (!arr.some((o) => o.name === f)) selected.delete(f); });
+        if (!arr.length) { el('body').innerHTML = ''; el('empty').style.display = ''; info(); return; }
+        el('empty').style.display = 'none';
+        el('body').innerHTML = arr.map((m) => `
+          <tr data-file="${esc(m.name)}">
+            <td class="col-check"><input type="checkbox" class="lib-check" ${selected.has(m.name) ? 'checked' : ''} /></td>
+            <td>
+              <div class="lib-name">${esc(m.name)}</div>
+              <div class="lib-meta">${esc(mediaMetaLine(m))}</div>
+            </td>
+          </tr>`).join('');
+        info();
+      }
+      el('body').addEventListener('change', (e) => {
+        if (!e.target.classList.contains('lib-check')) return;
+        const file = e.target.closest('tr').dataset.file;
+        if (e.target.checked) selected.add(file); else selected.delete(file);
+        info();
+      });
+      el('selectAll').addEventListener('change', (e) => {
+        if (e.target.checked) cache().forEach((m) => selected.add(m.name)); else selected.clear();
+        render();
+      });
+      return { render };
+    }
+
+    const videoLib = createLibrary({
+      cache: () => mediaCache, selected: selectedMedia,
+      ids: { body: 'libBody', count: 'libCount', selInfo: 'libSelInfo', selectAll: 'libSelectAll', empty: 'libEmpty' },
+    });
+    const imageLib = createLibrary({
+      cache: () => imagesCache, selected: selectedImages,
+      ids: { body: 'imgLibBody', count: 'imgLibCount', selInfo: 'imgLibSelInfo', selectAll: 'imgLibSelectAll', empty: 'imgLibEmpty' },
+    });
+
+    // ---------------------- Listas ordenables ----------------------
+    function plItemHTML(file) {
+      return `<li class="pl-item" draggable="true" data-file="${esc(file)}">
+        <span class="pl-handle" title="Arrastra para ordenar">⠿</span>
+        <span class="pl-name">${esc(file)}</span>
+        <button class="pl-dup" title="Duplicar (repetir)">⧉</button>
+        <button class="pl-del" title="Quitar de la lista">✕</button>
+      </li>`;
+    }
+    function imgItemHTML(file, segundos) {
+      const s = Number(segundos) > 0 ? Math.round(segundos) : DEFAULT_IMAGE_SECONDS;
+      return `<li class="pl-item" draggable="true" data-file="${esc(file)}">
+        <span class="pl-handle" title="Arrastra para ordenar">⠿</span>
+        <span class="pl-name">${esc(file)}</span>
+        <label class="pl-secs" title="Segundos en pantalla">
+          <input type="number" class="pl-secs-input" min="1" step="1" value="${s}" /> s
+        </label>
+        <button class="pl-dup" title="Duplicar (repetir)">⧉</button>
+        <button class="pl-del" title="Quitar de la lista">✕</button>
+      </li>`;
+    }
+    function makeItem(file) {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = plItemHTML(file).trim();
+      return tpl.content.firstChild;
+    }
+    function imgMakeItem(file, segundos) {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = imgItemHTML(file, segundos).trim();
+      return tpl.content.firstChild;
+    }
+    function playlistFromDOM(list) {
+      return [...list.querySelectorAll('.pl-item')].map((li) => li.dataset.file);
+    }
+    function toggleEmpty(list) {
+      const empty = list.parentElement.querySelector('.pl-empty');
+      if (empty) empty.style.display = list.children.length ? 'none' : '';
+    }
+    function getDragAfterElement(list, y) {
+      const items = [...list.querySelectorAll('.pl-item:not(.dragging)')];
+      return items.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset, element: child };
+        return closest;
+      }, { offset: -Infinity, element: null }).element;
+    }
+    function attachDnD(list) {
+      list.addEventListener('dragstart', (e) => {
+        const li = e.target.closest('.pl-item');
+        if (!li) return;
+        li.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', li.dataset.file); } catch {}
+      });
+      list.addEventListener('dragend', (e) => {
+        const li = e.target.closest('.pl-item');
+        if (li) li.classList.remove('dragging');
+        toggleEmpty(list);
+      });
+      list.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const dragging = list.querySelector('.pl-item.dragging');
+        if (!dragging) return;
+        const after = getDragAfterElement(list, e.clientY);
+        if (after == null) list.appendChild(dragging);
+        else list.insertBefore(dragging, after);
+      });
+    }
+
+    // ---------------------- Editor de layout ----------------------
+    function presetOptionsHTML(selected) {
+      return Object.keys(presetsCatalog).map((id) =>
+        `<option value="${esc(id)}" ${id === selected ? 'selected' : ''}>${esc(presetsCatalog[id].label)}</option>`
+      ).join('');
+    }
+    function widgetOptionsHTML(selected) {
+      return Object.keys(widgetsCatalog).map((id) =>
+        `<option value="${esc(id)}" ${id === selected ? 'selected' : ''}>${esc(widgetsCatalog[id].label)}</option>`
+      ).join('');
+    }
+    function videoConfigHTML(config) {
+      const items = (config && config.items) || [];
+      return `
+        <div class="media-section" data-kind="video">
+          <label class="muted">Videos (arrastra · ⧉ duplicar · ✕ quitar)</label>
+          <ul class="playlist-list" data-kind="video">${items.map(plItemHTML).join('')}</ul>
+          <div class="pl-empty muted">Sin videos. Selecciónalos en la biblioteca y pulsa «Añadir videos».</div>
+          <div class="section-actions">
+            <button class="btn ghost small addsel" type="button">➕ Añadir videos</button>
+          </div>
+        </div>`;
+    }
+    function imagenesConfigHTML(config) {
+      const modo = config && config.modo === 'estatica' ? 'estatica' : 'slider';
+      const items = (config && config.items) || [];
+      const rows = items.map((it) => imgItemHTML(it.file, it.segundos)).join('');
+      return `
+        <div class="media-section" data-kind="imagenes" data-modo="${modo}">
+          <div class="img-modo">
+            <label class="muted">Modo:</label>
+            <select class="modo-select">
+              <option value="slider" ${modo === 'slider' ? 'selected' : ''}>Slider (varias imágenes)</option>
+              <option value="estatica" ${modo === 'estatica' ? 'selected' : ''}>Estática (una imagen fija)</option>
+            </select>
+            <span class="muted modo-hint">${modo === 'estatica'
+              ? 'Se mostrará solo la primera imagen.'
+              : 'Cada imagen rota según sus segundos.'}</span>
+          </div>
+          <ul class="playlist-list" data-kind="imagenes">${rows}</ul>
+          <div class="pl-empty muted">Sin imágenes. Selecciónalas en la biblioteca y pulsa «Añadir imágenes».</div>
+          <div class="section-actions">
+            <button class="btn ghost small addsel" type="button">➕ Añadir imágenes</button>
+          </div>
+        </div>`;
+    }
+    function widgetConfigHTML(widget, config) {
+      if (widget === 'video') return videoConfigHTML(config);
+      if (widget === 'imagenes') return imagenesConfigHTML(config);
+      const label = (widgetsCatalog[widget] && widgetsCatalog[widget].label) || widget;
+      return `<div class="media-section" data-kind="${esc(widget)}">
+        <div class="muted widget-note">El widget «${esc(label)}» no requiere contenido.</div>
+      </div>`;
+    }
+    function zoneEditHTML(slot, zone) {
+      const widget = (zone && zone.widget) || 'reloj';
+      return `
+        <div class="zone-edit" data-slot="${esc(slot)}">
+          <div class="zone-head">
+            <span class="zone-tag">Zona ${esc(slot.toUpperCase())}</span>
+            <select class="widget-select">${widgetOptionsHTML(widget)}</select>
+          </div>
+          <div class="zone-config">${widgetConfigHTML(widget, zone && zone.config)}</div>
+        </div>`;
+    }
+    function renderLayoutEditor(scope, layout) {
+      const preset = presetsCatalog[layout.preset] ? layout.preset : Object.keys(presetsCatalog)[0];
+      const slots = (presetsCatalog[preset] && presetsCatalog[preset].slots) || [];
+      const zonesHTML = slots.map((s) => zoneEditHTML(s, layout.zones && layout.zones[s])).join('');
+      scope.innerHTML = `
+        <div class="layout-bar">
+          <label class="muted">Disposición:</label>
+          <select class="preset-select">${presetOptionsHTML(preset)}</select>
+        </div>
+        <div class="zones-wrap">${zonesHTML}</div>`;
+      scope.querySelectorAll('.playlist-list').forEach((list) => { attachDnD(list); toggleEmpty(list); });
+      enforceSingleVideo(scope);
+    }
+    function enforceSingleVideo(scope) {
+      const selects = [...scope.querySelectorAll('.widget-select')];
+      const hayVideo = selects.some((s) => s.value === 'video');
+      selects.forEach((s) => {
+        const opt = s.querySelector('option[value="video"]');
+        if (opt) opt.disabled = hayVideo && s.value !== 'video';
+      });
+    }
+    function readLayout(scope) {
+      const preset = scope.querySelector('.preset-select').value;
+      const zones = {};
+      scope.querySelectorAll('.zone-edit').forEach((ze) => {
+        const slot = ze.dataset.slot;
+        const widget = ze.querySelector('.widget-select').value;
+        let config = {};
+        if (widget === 'video') {
+          const list = ze.querySelector('.playlist-list');
+          config = { items: list ? playlistFromDOM(list) : [] };
+        } else if (widget === 'imagenes') {
+          const section = ze.querySelector('.media-section');
+          const modo = section.querySelector('.modo-select').value;
+          const items = [...ze.querySelectorAll('.pl-item')].map((li) => ({
+            file: li.dataset.file,
+            segundos: Number(li.querySelector('.pl-secs-input').value) || DEFAULT_IMAGE_SECONDS,
+          }));
+          config = { modo, items: modo === 'estatica' ? items.slice(0, 1) : items };
+        }
+        zones[slot] = { widget, config };
+      });
+      return { preset, zones };
+    }
+
+    // ---- Eventos del editor (clicks) ----
+    editorEl.addEventListener('click', (e) => {
+      const zone = e.target.closest('.zone-edit');
+      if (!zone) return;
+      const list = zone.querySelector('.playlist-list');
+      const section = zone.querySelector('.media-section');
+      const kind = section && section.dataset.kind;
+
+      if (e.target.classList.contains('pl-del')) {
+        e.target.closest('.pl-item').remove();
+        toggleEmpty(list);
+        return;
+      }
+      if (e.target.classList.contains('pl-dup')) {
+        const li = e.target.closest('.pl-item');
+        if (kind === 'imagenes') li.after(imgMakeItem(li.dataset.file, li.querySelector('.pl-secs-input').value));
+        else li.after(makeItem(li.dataset.file));
+        toggleEmpty(list);
+        return;
+      }
+      if (e.target.classList.contains('addsel')) {
+        const selected = kind === 'video' ? selectedMedia : selectedImages;
+        const hint = document.getElementById('saveHint');
+        if (!selected.size) {
+          hint.textContent = 'Marca elementos en la biblioteca primero'; hint.className = 'save-hint';
+          setTimeout(() => (hint.textContent = ''), 2500);
+          return;
+        }
+        const present = new Set(playlistFromDOM(list));
+        let added = 0;
+        selected.forEach((file) => {
+          if (!present.has(file)) {
+            list.appendChild(kind === 'imagenes' ? imgMakeItem(file, DEFAULT_IMAGE_SECONDS) : makeItem(file));
+            added++;
+          }
+        });
+        toggleEmpty(list);
+        hint.textContent = added ? `+${added} añadido(s) · Guarda para aplicar` : 'Ya estaban en la lista';
+        hint.className = 'save-hint';
+        setTimeout(() => (hint.textContent = ''), 2500);
+        return;
+      }
+    });
+
+    // ---- Eventos del editor (cambios) ----
+    editorEl.addEventListener('change', (e) => {
+      if (e.target.classList.contains('preset-select')) {
+        const cur = readLayout(editorEl);
+        const newPreset = e.target.value;
+        const slots = (presetsCatalog[newPreset] && presetsCatalog[newPreset].slots) || [];
+        const zones = {};
+        slots.forEach((s) => { zones[s] = cur.zones[s] || { widget: 'reloj', config: {} }; });
+        renderLayoutEditor(editorEl, { preset: newPreset, zones });
+        return;
+      }
+      if (e.target.classList.contains('widget-select')) {
+        const zone = e.target.closest('.zone-edit');
+        const widget = e.target.value;
+        const def = widget === 'video' ? { items: [] }
+          : widget === 'imagenes' ? { modo: 'slider', items: [] } : {};
+        zone.querySelector('.zone-config').innerHTML = widgetConfigHTML(widget, def);
+        zone.querySelectorAll('.playlist-list').forEach((l) => { attachDnD(l); toggleEmpty(l); });
+        enforceSingleVideo(editorEl);
+        return;
+      }
+      if (e.target.classList.contains('modo-select')) {
+        const section = e.target.closest('.media-section');
+        section.dataset.modo = e.target.value;
+        const hint = section.querySelector('.modo-hint');
+        if (hint) hint.textContent = e.target.value === 'estatica'
+          ? 'Se mostrará solo la primera imagen.'
+          : 'Cada imagen rota según sus segundos.';
+        return;
+      }
+    });
+
+    // ---- Guardar layout ----
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      const hint = document.getElementById('saveHint');
+      const layout = readLayout(editorEl);
+      hint.textContent = 'Guardando…'; hint.className = 'save-hint';
+      const res = await fetch('/api/admin/layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, layout }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        renderLayoutEditor(editorEl, data.layout);
+        hint.textContent = '✔ Guardado'; hint.className = 'save-hint ok';
+      } else {
+        hint.textContent = '✖ ' + (data.error || 'Error'); hint.className = 'save-hint err';
+      }
+      setTimeout(() => (hint.textContent = ''), 3000);
+    });
+
+    // ---- Cabecera: renombrar / eliminar ----
+    document.getElementById('renameBtn').addEventListener('click', async () => {
+      const nombre = prompt('Nuevo nombre del dispositivo:');
+      if (!nombre) return;
+      await fetch('/api/admin/device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, nombre }),
+      });
+      document.getElementById('devName').textContent = nombre;
+    });
+    document.getElementById('deleteBtn').addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este dispositivo y su layout?')) return;
+      await fetch('/api/admin/device/' + encodeURIComponent(deviceId), { method: 'DELETE' });
+      location.href = '/dashboard.html';
+    });
+
+    // ---- Carga ----
+    async function loadCatalog() {
+      const [pRes, mRes, iRes] = await Promise.all([
+        fetch('/api/admin/presets'),
+        fetch('/api/admin/media'),
+        fetch('/api/admin/images'),
+      ]);
+      if (pRes.ok) { const d = await pRes.json(); presetsCatalog = d.presets || {}; widgetsCatalog = d.widgets || {}; }
+      if (mRes.ok) { const d = await mRes.json(); mediaCache = d.media || []; }
+      if (iRes.ok) { const d = await iRes.json(); imagesCache = d.images || []; }
+      videoLib.render(); imageLib.render();
+    }
+
+    async function loadDevice() {
+      const res = await fetch('/api/admin/devices');
+      if (res.status === 401) { location.href = '/login.html'; return; }
+      const { devices } = await res.json();
+      const d = devices.find((x) => x.id === deviceId);
+      if (!d) { document.getElementById('notFound').hidden = false; return; }
+
+      document.getElementById('devName').textContent = d.nombre;
+      document.getElementById('devMeta').innerHTML =
+        `ID: ${esc(d.id)} · IP: ${esc(d.ip_actual || '—')} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}`;
+      const st = document.getElementById('devStatus');
+      st.hidden = false;
+      st.className = 'status ' + (d.online ? 'online' : 'offline');
+      st.innerHTML = `<span class="led"></span>${d.online ? 'En Línea' : 'Fuera de Línea'}`;
+
+      document.getElementById('editorWrap').hidden = false;
+      renderLayoutEditor(editorEl, clone(d.layout));
+    }
+
+    (async () => {
+      const me = await getMe();
+      if (!me) return;
+      renderTopnav('dispositivos', me.rol);
+      startClock('clock');
+      wireLogout('logoutBtn');
+      if (!deviceId) { document.getElementById('notFound').hidden = false; return; }
+      await loadCatalog();
+      await loadDevice();
+    })();
+  </script>
+</body>
+</html>

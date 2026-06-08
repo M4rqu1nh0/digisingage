@@ -222,6 +222,7 @@ async function syncMedia(items, dir, re, urlFor) {
 
 let lastPlaylist = []; // ultima lista de videos disponible
 let lastImages = [];   // ultima lista de imagenes disponible
+let lastLayout = null;  // ultimo layout recibido del servidor
 
 async function tick() {
   try {
@@ -232,6 +233,13 @@ async function tick() {
     );
     const playlist = Array.isArray(res.playlist) ? res.playlist : [];
     const images = Array.isArray(res.images) ? res.images : [];
+
+    // El layout define las zonas y sus widgets. Se reenvia al reproductor para
+    // que reconstruya la grilla si cambio (la descarga de medios usa playlist/images).
+    if (res.layout && typeof res.layout === 'object') {
+      lastLayout = res.layout;
+      sendChannel('layout', lastLayout);
+    }
 
     // Una lista vacia se trata como "sin actualizacion": NO se borra el
     // contenido local (protege ante reinicios del servidor / respuestas vacias).
@@ -335,11 +343,17 @@ function sendChannel(channel, data) {
   }
 }
 
+// Modo desarrollo: ventana normal (no kiosko) + DevTools para inspeccionar.
+// Se activa con `npm run dev` (electron . --dev) o DS_DEV=1.
+const DEV_MODE = process.argv.includes('--dev') || process.env.DS_DEV === '1';
+
 function createWindow() {
   mainWindow = new BrowserWindow({
-    kiosk: true,
-    fullscreen: true,
-    autoHideMenuBar: true,
+    kiosk: !DEV_MODE,
+    fullscreen: !DEV_MODE,
+    autoHideMenuBar: !DEV_MODE,
+    width: DEV_MODE ? 1280 : undefined,
+    height: DEV_MODE ? 720 : undefined,
     backgroundColor: '#000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -348,10 +362,14 @@ function createWindow() {
     },
   });
 
+  // En desarrollo abre el inspector (mismo DevTools que Chrome) en un panel lateral.
+  if (DEV_MODE) mainWindow.webContents.openDevTools({ mode: 'right' });
+
   mainWindow.webContents.on('did-finish-load', () => {
     rendererReady = true;
     // Ajustes + reenvio de lo ultimo calculado al cargar el reproductor.
     sendChannel('settings', { imageSeconds: config.imageSeconds });
+    if (lastLayout) sendChannel('layout', lastLayout);
     sendChannel('playlist', lastPlaylist);
     sendChannel('images', lastImages);
     if (lastWeather) sendChannel('weather', lastWeather);

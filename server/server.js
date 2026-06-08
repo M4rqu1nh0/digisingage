@@ -24,6 +24,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 
 const dataLayer = require('./db');
+const mediainfo = require('./mediainfo');
 
 // ----------------------------- Configuracion -----------------------------
 
@@ -231,6 +232,7 @@ app.post('/api/heartbeat', (req, res) => {
     ok: true,
     deviceId,
     serverTime: new Date().toISOString(),
+    layout: result.layout,
     playlist: result.playlist,
     images: result.images,
   });
@@ -362,28 +364,26 @@ app.get('/api/admin/devices', requireAuth, requireEmpresaUser, (req, res) => {
   res.json({ devices: dataLayer.listDevicesWithStatus(req.user.empresaId, ONLINE_WINDOW_MIN) });
 });
 
-// POST /api/admin/playlist -> reemplaza la playlist de video de un dispositivo.
-app.post('/api/admin/playlist', requireAuth, requireEmpresaUser, (req, res) => {
-  const { deviceId, videos } = req.body || {};
-  if (!deviceId || !Array.isArray(videos)) {
-    return res.status(400).json({ error: 'deviceId y videos[] requeridos' });
-  }
-  const limpio = videos.map((v) => String(v).trim()).filter(Boolean);
-  const playlist = dataLayer.savePlaylist(req.user.empresaId, deviceId, limpio);
-  if (playlist === null) return res.status(404).json({ error: 'Dispositivo no encontrado en tu empresa' });
-  res.json({ ok: true, deviceId, playlist });
+// GET /api/admin/presets -> catalogo de presets y widgets (para construir la UI).
+app.get('/api/admin/presets', requireAuth, requireEmpresaUser, (req, res) => {
+  res.json({ presets: dataLayer.layouts.PRESETS, widgets: dataLayer.layouts.WIDGETS });
 });
 
-// POST /api/admin/imageplaylist -> reemplaza la playlist de imagenes.
-app.post('/api/admin/imageplaylist', requireAuth, requireEmpresaUser, (req, res) => {
-  const { deviceId, images } = req.body || {};
-  if (!deviceId || !Array.isArray(images)) {
-    return res.status(400).json({ error: 'deviceId e images[] requeridos' });
+// POST /api/admin/layout -> guarda el layout (zonas + widgets) de un dispositivo.
+app.post('/api/admin/layout', requireAuth, requireEmpresaUser, (req, res) => {
+  const { deviceId, layout } = req.body || {};
+  if (!deviceId || !layout || typeof layout !== 'object') {
+    return res.status(400).json({ error: 'deviceId y layout requeridos' });
   }
-  const limpio = images.map((v) => String(v).trim()).filter(Boolean);
-  const imagePlaylist = dataLayer.saveImagePlaylist(req.user.empresaId, deviceId, limpio);
-  if (imagePlaylist === null) return res.status(404).json({ error: 'Dispositivo no encontrado en tu empresa' });
-  res.json({ ok: true, deviceId, images: imagePlaylist });
+  let saved;
+  try {
+    saved = dataLayer.saveLayout(req.user.empresaId, deviceId, layout);
+  } catch (e) {
+    if (e.code === 'LAYOUT_INVALIDO') return res.status(400).json({ error: e.message });
+    throw e;
+  }
+  if (saved === null) return res.status(404).json({ error: 'Dispositivo no encontrado en tu empresa' });
+  res.json({ ok: true, deviceId, layout: saved });
 });
 
 // POST /api/admin/device -> alta/renombrado manual de un dispositivo.
@@ -401,18 +401,20 @@ app.delete('/api/admin/device/:id', requireAuth, requireEmpresaUser, (req, res) 
   res.json({ ok });
 });
 
-// GET /api/admin/media -> videos de la empresa + limite de subida.
-app.get('/api/admin/media', requireAuth, requireEmpresaUser, (req, res) => {
+// GET /api/admin/media -> videos de la empresa (con metadatos) + limite de subida.
+app.get('/api/admin/media', requireAuth, requireEmpresaUser, async (req, res) => {
   const dir = empresaMediaDir(req.user.empresaId);
   const files = fs.readdirSync(dir).filter((f) => VIDEO_RE.test(f)).sort();
-  res.json({ media: files, maxUploadMB: MAX_UPLOAD_MB });
+  const media = await mediainfo.listWithMeta(dir, files, 'video');
+  res.json({ media, maxUploadMB: MAX_UPLOAD_MB });
 });
 
-// GET /api/admin/images -> imagenes de la empresa + limite de subida.
-app.get('/api/admin/images', requireAuth, requireEmpresaUser, (req, res) => {
+// GET /api/admin/images -> imagenes de la empresa (con metadatos) + limite de subida.
+app.get('/api/admin/images', requireAuth, requireEmpresaUser, async (req, res) => {
   const dir = empresaImagesDir(req.user.empresaId);
   const files = fs.readdirSync(dir).filter((f) => IMAGE_RE.test(f)).sort();
-  res.json({ images: files, maxUploadMB: MAX_UPLOAD_MB });
+  const images = await mediainfo.listWithMeta(dir, files, 'image');
+  res.json({ images, maxUploadMB: MAX_UPLOAD_MB });
 });
 
 // Multer con destino dinamico por empresa (preserva el nombre original).

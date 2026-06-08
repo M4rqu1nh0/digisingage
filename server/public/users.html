@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DigiSignage · Usuarios</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="left">
+      <div class="brand"><span class="dot"></span> DigiSignage</div>
+      <nav class="nav" id="topnav"></nav>
+    </div>
+    <div class="right">
+      <span class="muted" id="clock"></span>
+      <button class="btn ghost small" id="logoutBtn">Salir</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="toolbar">
+      <div>
+        <h2>Usuarios de la empresa</h2>
+        <div class="muted" id="summary">Cargando…</div>
+      </div>
+    </div>
+
+    <div class="library">
+      <div class="lib-wrap">
+        <form id="userForm" class="create-grid">
+          <div>
+            <label for="newUser">Usuario</label>
+            <input type="text" id="newUser" required placeholder="nombre.usuario" />
+          </div>
+          <div>
+            <label for="newPass">Contraseña</label>
+            <input type="password" id="newPass" required placeholder="••••••••" />
+          </div>
+          <div>
+            <label for="newRol">Rol</label>
+            <select id="newRol">
+              <option value="operador">Operador</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="create-actions">
+            <button class="btn" type="submit">Añadir usuario</button>
+            <span class="save-hint" id="userHint"></span>
+          </div>
+        </form>
+        <table class="lib-table" style="margin-top:14px">
+          <thead>
+            <tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    async function loadUsers() {
+      const res = await fetch('/api/admin/users');
+      if (res.status === 401) { location.href = '/login.html'; return; }
+      if (!res.ok) return;
+      const { users } = await res.json();
+      document.getElementById('summary').textContent = `${users.length} usuario(s)`;
+      document.getElementById('usersBody').innerHTML = users.map((u) => `
+        <tr data-id="${esc(u.id)}">
+          <td>${esc(u.usuario)}</td>
+          <td>${esc(u.rol)}</td>
+          <td><span class="status ${u.activo ? 'online' : 'offline'}"><span class="led"></span>${u.activo ? 'Activo' : 'Inactivo'}</span></td>
+          <td>
+            <button class="btn ghost small utoggle">${u.activo ? 'Desactivar' : 'Activar'}</button>
+            <button class="btn danger small udel">Eliminar</button>
+          </td>
+        </tr>`).join('');
+    }
+
+    document.getElementById('userForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const hint = document.getElementById('userHint');
+      const usuario = document.getElementById('newUser').value.trim();
+      const password = document.getElementById('newPass').value;
+      const rol = document.getElementById('newRol').value;
+      hint.textContent = 'Creando…'; hint.className = 'save-hint';
+      const res = await fetch('/api/admin/users', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario, password, rol }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) { hint.textContent = '✔ Creado'; hint.className = 'save-hint ok'; e.target.reset(); loadUsers(); }
+      else { hint.textContent = '✖ ' + (data.error || 'Error'); hint.className = 'save-hint err'; }
+      setTimeout(() => (hint.textContent = ''), 3000);
+    });
+
+    document.getElementById('usersBody').addEventListener('click', async (e) => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.classList.contains('utoggle')) {
+        const activar = e.target.textContent.trim() === 'Activar';
+        await fetch('/api/admin/users/' + encodeURIComponent(id), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activo: activar }),
+        });
+        loadUsers();
+      }
+      if (e.target.classList.contains('udel')) {
+        if (confirm('¿Eliminar este usuario?')) {
+          await fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' });
+          loadUsers();
+        }
+      }
+    });
+
+    (async () => {
+      const me = await getMe();
+      if (!me) return;
+      // Página solo para admin: un operador no gestiona usuarios.
+      if (me.rol !== 'admin') { location.href = '/dashboard.html'; return; }
+      renderTopnav('usuarios', me.rol);
+      startClock('clock');
+      wireLogout('logoutBtn');
+      await loadUsers();
+    })();
+  </script>
+</body>
+</html>
