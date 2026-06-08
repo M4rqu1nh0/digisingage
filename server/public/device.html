@@ -23,12 +23,17 @@
     <div class="toolbar">
       <div>
         <h2 id="devName">Cargando…</h2>
+        <span class="status offline" id="devStatus" hidden><span class="led"></span></span>
         <div class="muted" id="devMeta"></div>
       </div>
       <div class="right" style="display:flex; gap:8px; align-items:center;">
-        <span class="status offline" id="devStatus" hidden><span class="led"></span></span>
-        <button class="btn ghost small" id="renameBtn">Renombrar</button>
-        <button class="btn danger small" id="deleteBtn">Eliminar</button>
+        <div class="menu" id="devMenu">
+          <button class="btn ghost small menu-trigger" id="devMenuBtn" aria-haspopup="true" aria-expanded="false">Acciones ▾</button>
+          <div class="menu-list" role="menu">
+            <button class="menu-item" id="renameBtn" role="menuitem">✏️ Renombrar</button>
+            <button class="menu-item danger" id="deleteBtn" role="menuitem">🗑️ Eliminar</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -81,7 +86,7 @@
         <div class="toolbar" style="margin-bottom:12px;">
           <h2 style="font-size:16px;">Disposición y contenido</h2>
           <div style="display:flex; gap:8px; align-items:center;">
-            <button class="btn" id="saveBtn">Guardar layout</button>
+            <button class="btn" id="saveBtn">Guardar Cambios</button>
             <span class="save-hint" id="saveHint"></span>
           </div>
         </div>
@@ -290,18 +295,68 @@
           <div class="zone-config">${widgetConfigHTML(widget, zone && zone.config)}</div>
         </div>`;
     }
+    // Convierte las pistas de un CSS grid (mezcla de fr y px) en proporciones fr,
+    // tomando como referencia una pantalla de `total` px, para dibujar la miniatura.
+    function previewTracks(tracks, total) {
+      const parts = String(tracks || '1fr').trim().split(/\s+/);
+      let fixed = 0, fr = 0;
+      parts.forEach((p) => {
+        if (p.endsWith('fr')) fr += parseFloat(p) || 0;
+        else if (p.endsWith('px')) fixed += parseFloat(p) || 0;
+        else fr += 1;
+      });
+      const leftover = Math.max(total - fixed, 1);
+      const perFr = fr > 0 ? leftover / fr : 0;
+      return parts.map((p) => {
+        if (p.endsWith('px')) return `${parseFloat(p) || 0}fr`;
+        if (p.endsWith('fr')) return `${((parseFloat(p) || 0) * perFr).toFixed(2)}fr`;
+        return `${perFr.toFixed(2)}fr`;
+      }).join(' ');
+    }
+    // Dibuja la miniatura de zonas del preset, reflejando el widget de cada zona.
+    function renderLayoutPreview(scope, layout) {
+      const box = scope.querySelector('#layoutPreview');
+      if (!box) return;
+      const p = presetsCatalog[layout.preset];
+      box.innerHTML = '';
+      if (!p || !p.grid) return;
+      const grid = document.createElement('div');
+      grid.className = 'lp-grid';
+      grid.style.gridTemplateColumns = previewTracks(p.grid.columns, 1920);
+      grid.style.gridTemplateRows = previewTracks(p.grid.rows, 1080);
+      grid.style.gridTemplateAreas = p.grid.areas;
+      (p.slots || []).forEach((s) => {
+        const z = layout.zones && layout.zones[s];
+        const wId = z && z.widget;
+        const wLabel = (wId && widgetsCatalog[wId] && widgetsCatalog[wId].label) || '';
+        const cell = document.createElement('div');
+        cell.className = 'lp-zone';
+        cell.style.gridArea = s;
+        cell.innerHTML = `<span>${esc(s.toUpperCase())}</span>${wLabel ? `<small>${esc(wLabel)}</small>` : ''}`;
+        grid.appendChild(cell);
+      });
+      const cap = document.createElement('div');
+      cap.className = 'lp-caption muted';
+      cap.textContent = 'Vista previa de zonas';
+      box.appendChild(cap);
+      box.appendChild(grid);
+    }
     function renderLayoutEditor(scope, layout) {
       const preset = presetsCatalog[layout.preset] ? layout.preset : Object.keys(presetsCatalog)[0];
       const slots = (presetsCatalog[preset] && presetsCatalog[preset].slots) || [];
       const zonesHTML = slots.map((s) => zoneEditHTML(s, layout.zones && layout.zones[s])).join('');
       scope.innerHTML = `
         <div class="layout-bar">
-          <label class="muted">Disposición:</label>
-          <select class="preset-select">${presetOptionsHTML(preset)}</select>
+          <div class="layout-bar-controls">
+            <label class="muted">Disposición:</label>
+            <select class="preset-select">${presetOptionsHTML(preset)}</select>
+          </div>
+          <div class="layout-preview" id="layoutPreview"></div>
         </div>
         <div class="zones-wrap">${zonesHTML}</div>`;
       scope.querySelectorAll('.playlist-list').forEach((list) => { attachDnD(list); toggleEmpty(list); });
       enforceSingleVideo(scope);
+      renderLayoutPreview(scope, { preset, zones: layout.zones || {} });
     }
     function enforceSingleVideo(scope) {
       const selects = [...scope.querySelectorAll('.widget-select')];
@@ -398,6 +453,7 @@
         zone.querySelector('.zone-config').innerHTML = widgetConfigHTML(widget, def);
         zone.querySelectorAll('.playlist-list').forEach((l) => { attachDnD(l); toggleEmpty(l); });
         enforceSingleVideo(editorEl);
+        renderLayoutPreview(editorEl, readLayout(editorEl));
         return;
       }
       if (e.target.classList.contains('modo-select')) {
@@ -430,6 +486,22 @@
       }
       setTimeout(() => (hint.textContent = ''), 3000);
     });
+
+    // ---- Cabecera: menú de acciones ----
+    const devMenu = document.getElementById('devMenu');
+    const devMenuBtn = document.getElementById('devMenuBtn');
+    function closeMenu() {
+      devMenu.classList.remove('open');
+      devMenuBtn.setAttribute('aria-expanded', 'false');
+    }
+    devMenuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = devMenu.classList.toggle('open');
+      devMenuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    devMenu.querySelector('.menu-list').addEventListener('click', closeMenu);
+    document.addEventListener('click', (e) => { if (!devMenu.contains(e.target)) closeMenu(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
 
     // ---- Cabecera: renombrar / eliminar ----
     document.getElementById('renameBtn').addEventListener('click', async () => {
