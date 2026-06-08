@@ -243,6 +243,19 @@ async function tick() {
 
     // Una lista vacia se trata como "sin actualizacion": NO se borra el
     // contenido local (protege ante reinicios del servidor / respuestas vacias).
+    //
+    // Se descargan primero las IMÁGENES (pequeñas, aparecen rápido en el slider)
+    // y luego los VIDEOS (grandes), que siguen en segundo plano. El reproductor
+    // solo muestra lo que ya está descargado, así que no hay conflicto.
+    if (images.length === 0) {
+      log('[heartbeat] OK · imagenes vacias -> se conserva lo local');
+    } else {
+      lastImages = await syncMedia(images, IMAGES_DIR, IMAGE_RE,
+        (n) => `${config.serverUrl}/image/${encodeURIComponent(n)}?deviceId=${encodeURIComponent(config.deviceId)}`);
+      sendChannel('images', lastImages);
+      log('[sync] Imagenes disponibles:', JSON.stringify(lastImages));
+    }
+
     if (playlist.length === 0) {
       log('[heartbeat] OK · videos vacios -> se conserva lo local');
     } else {
@@ -251,15 +264,6 @@ async function tick() {
         (n) => `${config.serverUrl}/download/${encodeURIComponent(n)}?deviceId=${encodeURIComponent(config.deviceId)}`);
       sendChannel('playlist', lastPlaylist);
       log('[sync] Videos disponibles:', JSON.stringify(lastPlaylist));
-    }
-
-    if (images.length === 0) {
-      log('[heartbeat] OK · imagenes vacias -> se conserva lo local');
-    } else {
-      lastImages = await syncMedia(images, IMAGES_DIR, IMAGE_RE,
-        (n) => `${config.serverUrl}/image/${encodeURIComponent(n)}?deviceId=${encodeURIComponent(config.deviceId)}`);
-      sendChannel('images', lastImages);
-      log('[sync] Imagenes disponibles:', JSON.stringify(lastImages));
     }
   } catch (e) {
     log('[heartbeat] FALLO -', e.message, '(se conserva el contenido local)');
