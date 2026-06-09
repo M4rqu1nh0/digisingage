@@ -197,10 +197,6 @@ const stmts = {
      ORDER BY orden ASC
   `),
   clearPlaylist: db.prepare('DELETE FROM playlists WHERE dispositivo_id = ?'),
-  insertPlaylistItem: db.prepare(`
-    INSERT INTO playlists (dispositivo_id, video_url_o_nombre, orden)
-    VALUES (@dispositivo_id, @video, @orden)
-  `),
 
   getImagePlaylist: db.prepare(`
     SELECT imagen, orden
@@ -209,10 +205,6 @@ const stmts = {
      ORDER BY orden ASC
   `),
   clearImagePlaylist: db.prepare('DELETE FROM image_playlists WHERE dispositivo_id = ?'),
-  insertImagePlaylistItem: db.prepare(`
-    INSERT INTO image_playlists (dispositivo_id, imagen, orden)
-    VALUES (@dispositivo_id, @imagen, @orden)
-  `),
 };
 
 // ----------------------------- Empresas -----------------------------
@@ -427,38 +419,6 @@ const heartbeat = db.transaction((deviceId, ip, nombreSugerido, pairingCode) => 
 
 // ----------------------------- Dispositivos (admin) -----------------------------
 
-/** Reemplaza la playlist de video de un dispositivo (acotado a la empresa). */
-const savePlaylist = db.transaction((empresaId, deviceId, videos) => {
-  const dev = ensureDeviceInEmpresa(empresaId, deviceId);
-  if (!dev) return null; // dispositivo de otra empresa
-
-  stmts.clearPlaylist.run(deviceId);
-  videos.forEach((video, idx) => {
-    stmts.insertPlaylistItem.run({
-      dispositivo_id: deviceId,
-      video: String(video).trim(),
-      orden: idx,
-    });
-  });
-  return getPlaylistArray(deviceId);
-});
-
-/** Reemplaza la playlist de imagenes de un dispositivo (acotado a la empresa). */
-const saveImagePlaylist = db.transaction((empresaId, deviceId, imagenes) => {
-  const dev = ensureDeviceInEmpresa(empresaId, deviceId);
-  if (!dev) return null;
-
-  stmts.clearImagePlaylist.run(deviceId);
-  imagenes.forEach((imagen, idx) => {
-    stmts.insertImagePlaylistItem.run({
-      dispositivo_id: deviceId,
-      imagen: String(imagen).trim(),
-      orden: idx,
-    });
-  });
-  return getImagePlaylistArray(deviceId);
-});
-
 /** Lista de dispositivos de una empresa con estado online/offline y sus playlists. */
 function listDevicesWithStatus(empresaId, onlineWindowMin) {
   const limitMs = onlineWindowMin * 60 * 1000;
@@ -478,10 +438,6 @@ function listDevicesWithStatus(empresaId, onlineWindowMin) {
   });
 }
 
-function renameDevice(empresaId, deviceId, nombre) {
-  return stmts.renameDevice.run(nombre, deviceId, empresaId).changes > 0;
-}
-
 const deleteDevice = db.transaction((empresaId, deviceId) => {
   const dev = stmts.getDevice.get(deviceId);
   if (!dev || dev.empresa_id !== empresaId) return false;
@@ -489,12 +445,6 @@ const deleteDevice = db.transaction((empresaId, deviceId) => {
   stmts.clearImagePlaylist.run(deviceId);
   return stmts.deleteDevice.run(deviceId, empresaId).changes > 0;
 });
-
-/** ¿Existe el dispositivo dentro de esta empresa? */
-function deviceExists(empresaId, deviceId) {
-  const dev = stmts.getDevice.get(deviceId);
-  return !!dev && dev.empresa_id === empresaId;
-}
 
 /** Crea un dispositivo vacio bajo la empresa (alta manual desde el panel). */
 function createDevice(empresaId, deviceId, nombre) {
@@ -589,8 +539,6 @@ module.exports = {
   deleteUser,
   // dispositivos / playlists (acotados por empresa)
   heartbeat,
-  savePlaylist,
-  saveImagePlaylist,
   getPlaylistArray,
   getImagePlaylistArray,
   // layout (zonas + widgets)
@@ -598,9 +546,7 @@ module.exports = {
   saveLayout,
   layouts,
   listDevicesWithStatus,
-  renameDevice,
   deleteDevice,
-  deviceExists,
   createDevice,
   getDeviceEmpresaId,
   // seed / migracion
