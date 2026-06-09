@@ -44,6 +44,31 @@ const ONLINE_WINDOW_MIN = parseInt(process.env.ONLINE_WINDOW_MIN || '3', 10);
 const MAX_UPLOAD_MB = parseInt(process.env.MAX_UPLOAD_MB || '500', 10);
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+/** Convierte una duracion estilo JWT ('30s','15m','8h','7d') a milisegundos. */
+function durationToMs(str) {
+  const m = /^(\d+)\s*([smhd])$/.exec(String(str).trim());
+  if (!m) return 8 * 60 * 60 * 1000; // fallback: 8h
+  const n = parseInt(m[1], 10);
+  const unit = { s: 1e3, m: 60e3, h: 3600e3, d: 86400e3 }[m[2]];
+  return n * unit;
+}
+const SESSION_MS = durationToMs(JWT_EXPIRES);
+
+// En produccion, no arrancar con secretos/credenciales por defecto: un atacante
+// que los conozca tendria acceso total (forja de tokens o login de super-admin).
+if (IS_PROD) {
+  const inseguros = [];
+  if (JWT_SECRET === 'dev_secret_inseguro') inseguros.push('JWT_SECRET');
+  if (SUPERADMIN_PASS === 'superadmin123') inseguros.push('SUPERADMIN_PASS');
+  if (inseguros.length) {
+    throw new Error(
+      `Config insegura en produccion: define ${inseguros.join(', ')} con un valor propio antes de desplegar.`
+    );
+  }
+}
+
 // Carpetas configurables (util para tests y disco persistente en Render).
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(__dirname, 'media');
 const IMAGES_DIR = process.env.IMAGES_DIR || path.join(__dirname, 'images');
@@ -177,7 +202,8 @@ app.post('/api/login', (req, res) => {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',
-    maxAge: 8 * 60 * 60 * 1000,
+    secure: IS_PROD,
+    maxAge: SESSION_MS,
   });
   res.json({ ok: true, usuario: user.usuario, rol: user.rol });
 });
@@ -418,7 +444,9 @@ app.get('/api/admin/images', requireAuth, requireEmpresaUser, async (req, res) =
 });
 
 // Multer con destino dinamico por empresa (preserva el nombre original).
-function makeUploader(dirFor) {
+// `allowedRe` restringe las extensiones aceptadas (defensa en profundidad: la
+// carpeta de la empresa no debe acabar con archivos de tipos arbitrarios).
+function makeUploader(dirFor, allowedRe) {
   return multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
@@ -431,10 +459,14 @@ function makeUploader(dirFor) {
       filename: (req, file, cb) => cb(null, path.basename(file.originalname)),
     }),
     limits: { fileSize: MAX_UPLOAD_BYTES },
+    fileFilter: (req, file, cb) => {
+      if (allowedRe.test(file.originalname)) return cb(null, true);
+      cb(new Error('Tipo de archivo no permitido'));
+    },
   });
 }
-const uploadVideo = makeUploader(empresaMediaDir);
-const uploadImg = makeUploader(empresaImagesDir);
+const uploadVideo = makeUploader(empresaMediaDir, VIDEO_RE);
+const uploadImg = makeUploader(empresaImagesDir, IMAGE_RE);
 
 function handleUpload(uploader, field) {
   return (req, res) => {
