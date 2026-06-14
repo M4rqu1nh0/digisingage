@@ -410,7 +410,7 @@ input[type="number"]:focus {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 24px;
+  padding: 12px max(24px, calc((100% - 1400px) / 2));
   background: color-mix(in srgb, var(--panel) 85%, transparent);
   backdrop-filter: var(--header-blur);
   -webkit-backdrop-filter: var(--header-blur);
@@ -444,7 +444,7 @@ input[type="number"]:focus {
 }
 
 .container {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 28px 24px 60px;
 }
@@ -550,10 +550,10 @@ input[type="number"]:focus {
 
 .card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .dev-name {
@@ -1297,7 +1297,7 @@ code.pcode,
   align-items: center;
   gap: 9px;
   flex: 1;
-  min-width: 0;
+  min-width: fit-content;
 }
 
 .step-num {
@@ -1393,6 +1393,8 @@ input.code-digit {
   font-family: "JetBrains Mono", "Consolas", "Courier New", monospace;
   font-size: 1.5rem;
   font-weight: 600;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
 }
 
 @media (max-width: 480px) {

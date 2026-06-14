@@ -134,14 +134,12 @@
       return `
         <div class="card" data-id="${esc(d.id)}">
           <div class="card-head">
-            <div>
-              <p class="dev-name">${esc(d.nombre)}</p>
-              <div class="dev-meta">
-                ID: ${esc(d.id)}<br>
-                IP: ${esc(d.ip_actual || '—')} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}
-              </div>
-            </div>
+            <p class="dev-name">${esc(d.nombre)}</p>
             <span class="status ${statusCls}"><span class="led"></span>${statusTxt}</span>
+          </div>
+          <div class="dev-meta">
+            ID: ${esc(d.id)}<br>
+            IP: ${esc(d.ip_actual || '—')} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}
           </div>
           <div class="card-actions">
             <button class="btn small edit">${icon('edit')} Editar</button>
