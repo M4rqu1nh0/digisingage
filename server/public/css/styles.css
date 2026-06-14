@@ -350,6 +350,9 @@ input[type="number"]:focus {
   border-radius: calc(var(--radius) + 2px);
   box-shadow: var(--shadow-lg);
   padding: 24px;
+  /* El <dialog> trae color: CanvasText (negro) del navegador; lo forzamos a los
+     tokens para que el título sea legible en modo oscuro. */
+  color: var(--text);
 }
 
 .modal-title {
@@ -471,7 +474,7 @@ input[type="number"]:focus {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px max(24px, calc((100% - 1400px) / 2));
+  padding: 12px max(24px, calc((100% - 1336px) / 2));
   background: color-mix(in srgb, var(--panel) 85%, transparent);
   backdrop-filter: var(--header-blur);
   -webkit-backdrop-filter: var(--header-blur);
