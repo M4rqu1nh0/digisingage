@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DigiSignage · Dashboard</title>
   <link rel="stylesheet" href="/css/styles.css" />
+  <script src="/js/theme.js"></script>
 </head>
 <body>
   <div class="topbar">
@@ -14,11 +15,12 @@
     </div>
     <div class="right">
       <span class="muted" id="clock"></span>
+      <button class="btn ghost small theme-toggle" data-theme-toggle></button>
       <input type="file" id="fileInput" accept="video/*,.mp4,.webm,.ogg,.mov,.mkv" multiple hidden />
       <input type="file" id="imgInput" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp" multiple hidden />
-      <button class="btn ghost small" id="uploadBtn">⬆ Subir video</button>
-      <button class="btn ghost small" id="uploadImgBtn">🖼 Subir imagen</button>
-      <button class="btn ghost small" id="addBtn">+ Dispositivo</button>
+      <button class="btn ghost small" id="uploadBtn"><span class="material-symbols-outlined" aria-hidden="true">upload</span> Subir video</button>
+      <button class="btn ghost small" id="uploadImgBtn"><span class="material-symbols-outlined" aria-hidden="true">add_photo_alternate</span> Subir imagen</button>
+      <button class="btn ghost small" id="addBtn"><span class="material-symbols-outlined" aria-hidden="true">add</span> Dispositivo</button>
       <button class="btn ghost small" id="logoutBtn">Salir</button>
     </div>
   </div>
@@ -36,7 +38,7 @@
     <div class="empresa-bar" id="empresaBar"></div>
 
     <div id="dropzone" class="dropzone">
-      <div class="dz-icon">⬆</div>
+      <div class="dz-icon"><span class="material-symbols-outlined" aria-hidden="true">cloud_upload</span></div>
       <div>Arrastra y suelta videos o imágenes aquí para subirlos</div>
       <small id="dzLimit" class="muted"></small>
     </div>
@@ -47,7 +49,7 @@
          cada pantalla). -->
     <div class="lib-grid">
       <details class="library" open>
-        <summary><span>📚 Biblioteca de videos (<span id="libCount">0</span>)</span></summary>
+        <summary><span><span class="material-symbols-outlined" aria-hidden="true">movie</span> Biblioteca de videos (<span id="libCount">0</span>)</span></summary>
         <div class="lib-wrap">
           <table class="lib-table">
             <thead><tr><th>Nombre del archivo</th></tr></thead>
@@ -58,7 +60,7 @@
       </details>
 
       <details class="library" open>
-        <summary><span>🖼️ Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span></summary>
+        <summary><span><span class="material-symbols-outlined" aria-hidden="true">photo_library</span> Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span></summary>
         <div class="lib-wrap">
           <table class="lib-table">
             <thead><tr><th>Nombre del archivo</th></tr></thead>
@@ -141,7 +143,7 @@
             <span class="status ${statusCls}"><span class="led"></span>${statusTxt}</span>
           </div>
           <div class="card-actions">
-            <button class="btn small edit">✏️ Editar</button>
+            <button class="btn small edit">${icon('edit')} Editar</button>
           </div>
         </div>`;
     }
@@ -209,7 +211,7 @@
         const pct = row.querySelector('.up-pct');
 
         if (maxUploadMB && file.size > maxUploadMB * 1024 * 1024) {
-          pct.textContent = `✖ Supera ${maxUploadMB} MB`;
+          pct.innerHTML = `${icon('error')} Supera ${maxUploadMB} MB`;
           row.classList.add('err');
           setTimeout(() => row.remove(), 6000);
           return resolve();
@@ -234,14 +236,14 @@
           try { serverMsg = JSON.parse(xhr.responseText).error || ''; } catch {}
           if (xhr.status >= 200 && xhr.status < 300) {
             fill.style.width = '100%';
-            pct.textContent = '✔ Listo';
+            pct.innerHTML = icon('check_circle') + ' Listo';
             row.classList.add('ok');
           } else if (xhr.status === 401) {
-            pct.textContent = '✖ Sesión expirada';
+            pct.innerHTML = icon('error') + ' Sesión expirada';
             row.classList.add('err');
             setTimeout(() => (location.href = '/login.html'), 1500);
           } else {
-            pct.textContent = '✖ ' + (serverMsg || 'Error');
+            pct.innerHTML = icon('error') + ' ' + esc(serverMsg || 'Error');
             row.classList.add('err');
           }
           setTimeout(() => row.remove(), 6000);
@@ -249,7 +251,7 @@
         });
 
         xhr.addEventListener('error', () => {
-          pct.textContent = '✖ Error de red';
+          pct.innerHTML = icon('error') + ' Error de red';
           row.classList.add('err');
           setTimeout(() => row.remove(), 5000);
           resolve();
@@ -318,7 +320,7 @@
         document.getElementById('copyCode').addEventListener('click', () => {
           navigator.clipboard?.writeText(e.pairing_code);
           const b = document.getElementById('copyCode');
-          b.textContent = '✔ Copiado';
+          b.innerHTML = icon('check_circle') + ' Copiado';
           setTimeout(() => (b.textContent = 'Copiar'), 1500);
         });
       } catch {}

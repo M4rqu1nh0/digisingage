@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DigiSignage · Usuarios</title>
   <link rel="stylesheet" href="/css/styles.css" />
+  <script src="/js/theme.js"></script>
 </head>
 <body>
   <div class="topbar">
@@ -14,6 +15,7 @@
     </div>
     <div class="right">
       <span class="muted" id="clock"></span>
+      <button class="btn ghost small theme-toggle" data-theme-toggle></button>
       <button class="btn ghost small" id="logoutBtn">Salir</button>
     </div>
   </div>
@@ -91,8 +93,8 @@
         body: JSON.stringify({ usuario, password, rol }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) { hint.textContent = '✔ Creado'; hint.className = 'save-hint ok'; e.target.reset(); loadUsers(); }
-      else { hint.textContent = '✖ ' + (data.error || 'Error'); hint.className = 'save-hint err'; }
+      if (res.ok) { hint.innerHTML = icon('check_circle') + ' Creado'; hint.className = 'save-hint ok'; e.target.reset(); loadUsers(); }
+      else { hint.innerHTML = icon('error') + ' ' + esc(data.error || 'Error'); hint.className = 'save-hint err'; }
       setTimeout(() => (hint.textContent = ''), 3000);
     });
 

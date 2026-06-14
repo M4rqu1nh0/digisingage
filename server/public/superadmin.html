@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DigiSignage · Super-Admin</title>
   <link rel="stylesheet" href="/css/styles.css" />
+  <script src="/js/theme.js"></script>
 </head>
 <body>
   <div class="topbar">
     <div class="brand"><span class="dot"></span> DigiSignage · Super-Admin</div>
     <div class="right">
       <span class="muted" id="whoami"></span>
+      <button class="btn ghost small theme-toggle" data-theme-toggle></button>
       <button class="btn ghost small" id="logoutBtn">Salir</button>
     </div>
   </div>
@@ -25,7 +27,7 @@
 
     <!-- Alta de empresa -->
     <details class="library" open>
-      <summary><span>➕ Crear empresa</span></summary>
+      <summary><span><span class="material-symbols-outlined" aria-hidden="true">add_business</span> Crear empresa</span></summary>
       <div class="lib-wrap">
         <form id="createForm" class="create-grid">
           <div>
@@ -78,6 +80,10 @@
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
+    function icon(name, extra) {
+      return `<span class="material-symbols-outlined${extra ? ' ' + extra : ''}" aria-hidden="true">${name}</span>`;
+    }
+
     // Verifica sesion y rol.
     fetch('/api/me').then(async (r) => {
       if (!r.ok) { location.href = '/login.html'; return; }
@@ -101,7 +107,7 @@
         <tr data-id="${esc(e.id)}">
           <td>${esc(e.nombre)}</td>
           <td><code class="pcode">${esc(e.pairing_code)}</code>
-              <button class="btn ghost small rotate" title="Regenerar código">↻</button></td>
+              <button class="btn ghost small rotate" title="Regenerar código">${icon('autorenew')}</button></td>
           <td>${e.dispositivos}</td>
           <td>
             <span class="status ${e.activa ? 'online' : 'offline'}">
@@ -130,12 +136,12 @@
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        hint.textContent = `✔ Creada · Pairing code: ${data.empresa.pairing_code}`;
+        hint.innerHTML = `${icon('check_circle')} Creada · Pairing code: ${esc(data.empresa.pairing_code)}`;
         hint.className = 'save-hint ok';
         e.target.reset();
         loadEmpresas();
       } else {
-        hint.textContent = '✖ ' + (data.error || 'Error');
+        hint.innerHTML = icon('error') + ' ' + esc(data.error || 'Error');
         hint.className = 'save-hint err';
       }
     });
