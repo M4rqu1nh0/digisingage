@@ -1258,3 +1258,155 @@ code.pcode,
 .empresa-bar strong {
   color: var(--text);
 }
+
+/* ----------------- Asistente de vinculación (2 pasos) ----------------- */
+.wizard-card {
+  width: 100%;
+  max-width: 540px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow-lg);
+  padding: 32px;
+}
+
+.wizard-card h2 {
+  margin: 0 0 6px;
+  font-size: 1.571rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.wizard-desc {
+  color: var(--muted);
+  font-size: 0.964rem;
+  margin-bottom: 24px;
+}
+
+/* Indicador de pasos */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+
+.step-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 0.893rem;
+  font-weight: 700;
+  border: 1px solid var(--border-strong);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.step-label {
+  font-size: 0.929rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-line {
+  flex: 1;
+  height: 2px;
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+.step-pill.active .step-num {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+
+.step-pill.active .step-label {
+  color: var(--text);
+}
+
+.step-pill.done .step-num {
+  background: var(--green-soft);
+  color: var(--green-text);
+  border-color: transparent;
+}
+
+/* Paneles de cada paso */
+.wizard-step {
+  display: none;
+}
+
+.wizard-step.active {
+  display: block;
+  animation: menu-in 0.15s ease;
+}
+
+.wizard-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.wizard-actions .spacer {
+  flex: 1;
+}
+
+/* Entrada del código en casillas individuales (estilo OTP) */
+.code-boxes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.code-boxes .code-gap {
+  flex: 0 0 8px;
+  height: 2px;
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+input.code-digit {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 14px 0;
+  text-align: center;
+  font-family: "JetBrains Mono", "Consolas", "Courier New", monospace;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+@media (max-width: 480px) {
+  input.code-digit {
+    padding: 11px 0;
+    font-size: 1.214rem;
+  }
+  .code-boxes {
+    gap: 5px;
+  }
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.857rem;
+  margin-top: 7px;
+}

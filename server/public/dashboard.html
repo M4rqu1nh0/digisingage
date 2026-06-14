@@ -175,23 +175,10 @@
       }
     });
 
-    // Vincular una pantalla: el usuario ingresa el código individual que la
-    // pantalla muestra en su primer arranque.
-    document.getElementById('addBtn').addEventListener('click', async () => {
-      const code = prompt('Código que muestra la pantalla en su primer arranque:');
-      if (!code || !code.trim()) return;
-      const nombre = prompt('Nombre descriptivo (opcional, ej. "Pantalla Recepción"):') || '';
-      const res = await fetch('/api/admin/claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code.trim(), nombre: nombre.trim() }),
-      });
-      if (res.ok) {
-        loadDevices();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || 'No se pudo vincular la pantalla');
-      }
+    // Vincular una pantalla: se hace en una página independiente con un
+    // formulario de 2 pasos (código del dispositivo + nombre).
+    document.getElementById('addBtn').addEventListener('click', () => {
+      location.href = '/vincular.html';
     });
 
     // ---------------------- Subida (videos e imágenes) ----------------------
