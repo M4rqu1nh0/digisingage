@@ -178,24 +178,22 @@ function requireEmpresaAdmin(req, res, next) {
   return res.status(403).json({ error: 'Requiere admin de empresa' });
 }
 
-// POST /api/login -> { usuario, password, empresa? }
-//  - Sin "empresa": intento de super-admin.
-//  - Con "empresa" (nombre): usuario de esa empresa.
+// POST /api/login -> { usuario, password }
+// El nombre de usuario es unico en todo el sistema, asi que basta usuario +
+// contrasena: el servidor resuelve a que empresa pertenece (o si es super-admin).
 app.post('/api/login', (req, res) => {
-  const { usuario, password, empresa } = req.body || {};
+  const { usuario, password } = req.body || {};
   if (!usuario || !password) return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
 
-  let user = null;
-  if (empresa && String(empresa).trim()) {
-    const emp = dataLayer.getEmpresaByNombre(String(empresa).trim());
-    if (!emp || !emp.activa) return res.status(401).json({ error: 'Credenciales invalidas' });
-    user = dataLayer.getUserByLogin(emp.id, usuario);
-  } else {
-    user = dataLayer.getSuperAdminByLogin(usuario);
-  }
-
+  const user = dataLayer.getUserByUsuario(usuario);
   if (!user || !user.activo || !dataLayer.verifyPassword(password, user.password_hash)) {
     return res.status(401).json({ error: 'Credenciales invalidas' });
+  }
+
+  // Usuarios de empresa: la empresa debe estar activa para poder entrar.
+  if (user.empresa_id) {
+    const emp = dataLayer.getEmpresa(user.empresa_id);
+    if (!emp || !emp.activa) return res.status(401).json({ error: 'Credenciales invalidas' });
   }
 
   const token = signToken(user);
@@ -323,21 +321,15 @@ app.post('/api/super/empresas', requireAuth, requireSuperAdmin, (req, res) => {
   }
   let empresa;
   try {
-    empresa = dataLayer.createEmpresa(nombre);
+    // Atomico: si el usuario admin ya existe (unico global) no queda empresa huerfana.
+    empresa = dataLayer.createEmpresaWithAdmin({ nombre, adminUser, adminPass });
   } catch (e) {
     if (e.code === 'EMPRESA_DUP') return res.status(409).json({ error: e.message });
     if (e.code === 'EMPRESA_NOMBRE') return res.status(400).json({ error: e.message });
+    if (String(e.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'Ya existe un usuario con ese nombre' });
+    }
     throw e;
-  }
-  try {
-    dataLayer.createUser({
-      empresaId: empresa.id,
-      usuario: adminUser,
-      password: adminPass,
-      rol: 'admin',
-    });
-  } catch (e) {
-    return res.status(400).json({ error: 'No se pudo crear el admin: ' + e.message });
   }
   // Prepara las carpetas de medios de la empresa.
   empresaMediaDir(empresa.id);
@@ -518,7 +510,7 @@ app.post('/api/admin/users', requireAuth, requireEmpresaAdmin, (req, res) => {
     res.json({ ok: true, user: { id: u.id, usuario: u.usuario, rol: u.rol } });
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) {
-      return res.status(409).json({ error: 'Ya existe un usuario con ese nombre en la empresa' });
+      return res.status(409).json({ error: 'Ya existe un usuario con ese nombre' });
     }
     throw e;
   }
