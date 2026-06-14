@@ -400,19 +400,21 @@
       const section = zone.querySelector('.media-section');
       const kind = section && section.dataset.kind;
 
-      if (e.target.classList.contains('pl-del')) {
+      // Nota: el target del clic suele ser el <span> del icono, no el botón;
+      // por eso se usa closest() en lugar de classList.contains().
+      if (e.target.closest('.pl-del')) {
         e.target.closest('.pl-item').remove();
         toggleEmpty(list);
         return;
       }
-      if (e.target.classList.contains('pl-dup')) {
+      if (e.target.closest('.pl-dup')) {
         const li = e.target.closest('.pl-item');
         if (kind === 'imagenes') li.after(imgMakeItem(li.dataset.file, li.querySelector('.pl-secs-input').value));
         else li.after(makeItem(li.dataset.file));
         toggleEmpty(list);
         return;
       }
-      if (e.target.classList.contains('addsel')) {
+      if (e.target.closest('.addsel')) {
         const selected = kind === 'video' ? selectedMedia : selectedImages;
         const hint = document.getElementById('saveHint');
         if (!selected.size) {
@@ -507,7 +509,12 @@
 
     // ---- Cabecera: renombrar / eliminar ----
     document.getElementById('renameBtn').addEventListener('click', async () => {
-      const nombre = prompt('Nuevo nombre del dispositivo:');
+      const nombre = await promptModal({
+        title: 'Renombrar dispositivo',
+        label: 'Nuevo nombre del dispositivo',
+        value: document.getElementById('devName').textContent.trim(),
+        confirmText: 'Guardar',
+      });
       if (!nombre) return;
       await fetch('/api/admin/device', {
         method: 'POST',
@@ -517,7 +524,10 @@
       document.getElementById('devName').textContent = nombre;
     });
     document.getElementById('deleteBtn').addEventListener('click', async () => {
-      if (!confirm('¿Eliminar este dispositivo y su layout?')) return;
+      const ok = await confirmModal('¿Eliminar este dispositivo y su layout?', {
+        title: 'Eliminar dispositivo', confirmText: 'Eliminar', danger: true,
+      });
+      if (!ok) return;
       await fetch('/api/admin/device/' + encodeURIComponent(deviceId), { method: 'DELETE' });
       location.href = '/dashboard.html';
     });

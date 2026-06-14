@@ -329,6 +329,67 @@ input[type="number"]:focus {
   line-height: 1;
 }
 
+/* ----------------- Modal de confirmación (<dialog>) ----------------- */
+.modal {
+  border: none;
+  background: transparent;
+  padding: 0;
+  max-width: 440px;
+  width: calc(100% - 32px);
+}
+
+.modal::backdrop {
+  background: rgba(15, 18, 30, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 1.214rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.modal-msg {
+  margin: 0 0 22px;
+  color: var(--text-soft);
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.modal-line {
+  margin: 0;
+}
+
+.modal-list {
+  margin: 12px 0 0;
+  padding-left: 22px;
+}
+
+.modal-list li {
+  margin: 2px 0;
+}
+
+/* Inputs dentro de un modal: primer label sin margen superior extra. */
+.modal-card label:first-of-type {
+  margin-top: 4px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 /* ----------------- Menú desplegable de acciones ----------------- */
 .menu {
   position: relative;
@@ -800,6 +861,26 @@ details.media-box summary {
   width: 34px;
   text-align: center;
   vertical-align: top;
+}
+
+.lib-table .lib-act-col {
+  width: 1%;
+}
+
+.lib-table td.lib-act {
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.lib-del {
+  color: var(--muted);
+}
+
+.lib-del:hover {
+  background: var(--red-soft);
+  border-color: var(--red);
+  color: var(--red-text);
 }
 
 .lib-name {

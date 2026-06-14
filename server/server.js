@@ -493,6 +493,50 @@ app.post('/api/admin/media', requireAuth, requireEmpresaUser, handleUpload(uploa
 // POST /api/admin/images -> subir imagen a la carpeta de la empresa.
 app.post('/api/admin/images', requireAuth, requireEmpresaUser, handleUpload(uploadImg, 'image'));
 
+/**
+ * Borra un archivo de medio de la empresa (opcion A: bloquear si esta en uso).
+ * Acota a la carpeta de la empresa, valida el nombre contra path traversal y
+ * solo elimina del disco si ningun layout lo referencia.
+ */
+function handleDeleteMedia({ kind, dirFor, re }) {
+  return (req, res) => {
+    const dir = dirFor(req.user.empresaId);
+    const safe = path.basename(String(req.params.filename || ''));
+    if (!safe || !re.test(safe)) {
+      return res.status(400).json({ error: 'Nombre de archivo inválido' });
+    }
+    const filePath = path.join(dir, safe);
+    if (!filePath.startsWith(dir) || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    const enUso = dataLayer.findMediaUsage(req.user.empresaId, kind, safe);
+    if (enUso.length) {
+      return res.status(409).json({
+        error: 'El archivo está en uso por uno o más dispositivos y no puede eliminarse.',
+        enUso,
+      });
+    }
+    fs.unlinkSync(filePath);
+    res.json({ ok: true });
+  };
+}
+
+// DELETE /api/admin/media/:filename -> elimina un video (si no esta en uso).
+app.delete(
+  '/api/admin/media/:filename',
+  requireAuth,
+  requireEmpresaUser,
+  handleDeleteMedia({ kind: 'video', dirFor: empresaMediaDir, re: VIDEO_RE })
+);
+
+// DELETE /api/admin/images/:filename -> elimina una imagen (si no esta en uso).
+app.delete(
+  '/api/admin/images/:filename',
+  requireAuth,
+  requireEmpresaUser,
+  handleDeleteMedia({ kind: 'image', dirFor: empresaImagesDir, re: IMAGE_RE })
+);
+
 // ----------------------------- Gestion de usuarios (admin de empresa) -----------------------------
 
 // GET /api/admin/users -> usuarios de la empresa.

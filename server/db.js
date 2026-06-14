@@ -536,6 +536,25 @@ function getDeviceEmpresaId(deviceId) {
   return dev ? dev.empresa_id : null;
 }
 
+// ----------------------------- Medios (uso en layouts) -----------------------------
+
+/**
+ * Busca en que dispositivos de la empresa se usa un archivo de medio.
+ * `kind` es 'video' | 'image'. Devuelve [{ id, nombre }] (sin duplicados),
+ * que es justo lo que necesita la opcion "bloquear borrado si esta en uso".
+ */
+function findMediaUsage(empresaId, kind, filename) {
+  const target = String(filename || '').trim();
+  if (!target) return [];
+  const usados = [];
+  for (const d of stmts.listDevicesByEmpresa.all(empresaId)) {
+    const { videos, images } = layouts.flattenMedia(getLayout(d.id));
+    const list = kind === 'image' ? images : videos;
+    if (list.includes(target)) usados.push({ id: d.id, nombre: d.nombre });
+  }
+  return usados;
+}
+
 // ----------------------------- Seed / Migracion de datos -----------------------------
 
 /**
@@ -625,6 +644,8 @@ module.exports = {
   deleteDevice,
   renameDevice,
   getDeviceEmpresaId,
+  // medios
+  findMediaUsage,
   // seed / migracion
   ensureSeed,
 };
