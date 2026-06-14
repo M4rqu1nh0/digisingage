@@ -238,22 +238,33 @@ function clientIp(req) {
 
 /**
  * POST /api/heartbeat
- * Body: { deviceId, nombre?, pairingCode? }
- * - Dispositivo existente: refresca conexion/IP y devuelve su playlist.
- * - Dispositivo nuevo: requiere pairingCode valido de una empresa activa.
+ * Body: { deviceId, nombre? }
+ * - Dispositivo asignado: refresca conexion/IP y devuelve { status:'ok', ... }.
+ * - Dispositivo sin asignar (nuevo o aun no vinculado): se registra con un codigo
+ *   individual y devuelve { status:'unclaimed', claimCode } para mostrarlo en
+ *   pantalla; el usuario lo vincula desde el dashboard.
  */
 app.post('/api/heartbeat', (req, res) => {
-  const { deviceId, nombre, pairingCode } = req.body || {};
+  const { deviceId, nombre } = req.body || {};
   if (!deviceId || typeof deviceId !== 'string') {
     return res.status(400).json({ error: 'deviceId requerido' });
   }
   const ip = clientIp(req);
-  const result = dataLayer.heartbeat(deviceId, ip, nombre, pairingCode);
-  if (!result) {
-    return res.status(403).json({ error: 'Dispositivo no emparejado. Falta un pairing code valido.' });
+  const result = dataLayer.heartbeat(deviceId, ip, nombre);
+
+  if (result.status === 'unclaimed') {
+    return res.json({
+      ok: true,
+      status: 'unclaimed',
+      deviceId,
+      claimCode: result.claimCode,
+      serverTime: new Date().toISOString(),
+    });
   }
+
   res.json({
     ok: true,
+    status: 'ok',
     deviceId,
     serverTime: new Date().toISOString(),
     layout: result.layout,
@@ -305,7 +316,6 @@ app.get('/api/super/empresas', requireAuth, requireSuperAdmin, (req, res) => {
   const empresas = dataLayer.listEmpresas().map((e) => ({
     id: e.id,
     nombre: e.nombre,
-    pairing_code: e.pairing_code,
     activa: !!e.activa,
     created_at: e.created_at,
     dispositivos: countStmt.get(e.id).n,
@@ -340,17 +350,9 @@ app.post('/api/super/empresas', requireAuth, requireSuperAdmin, (req, res) => {
     empresa: {
       id: empresa.id,
       nombre: empresa.nombre,
-      pairing_code: empresa.pairing_code,
       activa: !!empresa.activa,
     },
   });
-});
-
-// POST /api/super/empresas/:id/rotate-code -> regenera el pairing code.
-app.post('/api/super/empresas/:id/rotate-code', requireAuth, requireSuperAdmin, (req, res) => {
-  const code = dataLayer.rotatePairingCode(req.params.id);
-  if (!code) return res.status(404).json({ error: 'Empresa no encontrada' });
-  res.json({ ok: true, pairing_code: code });
 });
 
 // PATCH /api/super/empresas/:id -> activar/desactivar empresa.
@@ -364,14 +366,13 @@ app.patch('/api/super/empresas/:id', requireAuth, requireSuperAdmin, (req, res) 
 
 // ----------------------------- API de admin (empresa) -----------------------------
 
-// GET /api/admin/empresa -> datos de la empresa del usuario (incluye pairing code).
+// GET /api/admin/empresa -> datos de la empresa del usuario.
 app.get('/api/admin/empresa', requireAuth, requireEmpresaUser, (req, res) => {
   const emp = dataLayer.getEmpresa(req.user.empresaId);
   if (!emp) return res.status(404).json({ error: 'Empresa no encontrada' });
   res.json({
     id: emp.id,
     nombre: emp.nombre,
-    pairing_code: emp.pairing_code,
     activa: !!emp.activa,
     rol: req.user.rol,
   });
@@ -404,12 +405,23 @@ app.post('/api/admin/layout', requireAuth, requireEmpresaUser, (req, res) => {
   res.json({ ok: true, deviceId, layout: saved });
 });
 
-// POST /api/admin/device -> alta/renombrado manual de un dispositivo.
+// POST /api/admin/claim -> vincula una pantalla a la empresa por su codigo individual.
+app.post('/api/admin/claim', requireAuth, requireEmpresaUser, (req, res) => {
+  const { code, nombre } = req.body || {};
+  if (!code || !String(code).trim()) return res.status(400).json({ error: 'Código requerido' });
+  const dev = dataLayer.claimDevice(req.user.empresaId, code, nombre);
+  if (!dev) return res.status(404).json({ error: 'Código no válido o ya usado' });
+  res.json({ ok: true, device: { id: dev.id, nombre: dev.nombre } });
+});
+
+// POST /api/admin/device -> renombrado de un dispositivo de la empresa.
 app.post('/api/admin/device', requireAuth, requireEmpresaUser, (req, res) => {
   const { deviceId, nombre } = req.body || {};
-  if (!deviceId) return res.status(400).json({ error: 'deviceId requerido' });
-  const ok = dataLayer.createDevice(req.user.empresaId, String(deviceId).trim(), nombre);
-  if (!ok) return res.status(409).json({ error: 'Ese dispositivo ya pertenece a otra empresa' });
+  if (!deviceId || !nombre || !String(nombre).trim()) {
+    return res.status(400).json({ error: 'deviceId y nombre requeridos' });
+  }
+  const ok = dataLayer.renameDevice(req.user.empresaId, String(deviceId).trim(), String(nombre).trim());
+  if (!ok) return res.status(404).json({ error: 'Dispositivo no encontrado en tu empresa' });
   res.json({ ok: true });
 });
 
@@ -540,6 +552,22 @@ app.use(express.static(PUBLIC_DIR));
 
 // Raiz -> login.
 app.get('/', (req, res) => res.redirect('/login.html'));
+
+// ----------------------------- Mantenimiento -----------------------------
+
+// Limpia pantallas que se registraron pero nunca se vincularon (sin asignar)
+// y llevan mas de 7 dias sin contacto. Se ejecuta al arrancar y cada 24 h.
+const UNCLAIMED_TTL_DAYS = 7;
+function pruneUnclaimed() {
+  try {
+    const n = dataLayer.pruneStaleUnclaimed(UNCLAIMED_TTL_DAYS);
+    if (n) console.log(`  Limpiadas ${n} pantalla(s) sin asignar (> ${UNCLAIMED_TTL_DAYS} dias)`);
+  } catch (e) {
+    console.warn('  Aviso: fallo la limpieza de pantallas sin asignar:', e.message);
+  }
+}
+pruneUnclaimed();
+setInterval(pruneUnclaimed, 24 * 60 * 60 * 1000);
 
 // ----------------------------- Arranque -----------------------------
 

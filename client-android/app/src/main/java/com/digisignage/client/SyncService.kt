@@ -73,7 +73,17 @@ class SyncService : Service() {
     /** Un ciclo de heartbeat + sincronización de videos e imágenes. */
     private fun tick() {
         try {
-            val hb = Sync.heartbeat(cfg.serverUrl, cfg.deviceId, cfg.deviceName, cfg.pairingCode)
+            val hb = Sync.heartbeat(cfg.serverUrl, cfg.deviceId, cfg.deviceName)
+
+            // Pantalla sin asignar: mostrar el codigo individual y no sincronizar.
+            if (hb.status == "unclaimed") {
+                Log.i(TAG, "[heartbeat] OK · sin asignar · codigo: ${hb.claimCode}")
+                val p = org.json.JSONObject().put("claimCode", hb.claimCode ?: "")
+                SignageState.emit("pairing", p.toString())
+                return
+            }
+            // Asignada: ocultar el overlay de vinculacion si estaba visible.
+            SignageState.emit("pairing", "null")
 
             // El layout define las zonas/widgets; se reenvia al reproductor (la
             // descarga de medios sigue usando playlist/images).

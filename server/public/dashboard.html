@@ -20,7 +20,7 @@
       <input type="file" id="imgInput" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp" multiple hidden />
       <button class="btn ghost small" id="uploadBtn"><span class="material-symbols-outlined" aria-hidden="true">upload</span> Subir video</button>
       <button class="btn ghost small" id="uploadImgBtn"><span class="material-symbols-outlined" aria-hidden="true">add_photo_alternate</span> Subir imagen</button>
-      <button class="btn ghost small" id="addBtn"><span class="material-symbols-outlined" aria-hidden="true">add</span> Dispositivo</button>
+      <button class="btn ghost small" id="addBtn"><span class="material-symbols-outlined" aria-hidden="true">add</span> Vincular pantalla</button>
       <button class="btn ghost small" id="logoutBtn">Salir</button>
     </div>
   </div>
@@ -34,7 +34,8 @@
       <div class="muted">Se actualiza cada 15&nbsp;s · Verde = activo en últimos 3&nbsp;min</div>
     </div>
 
-    <!-- Datos de la empresa: el pairing code se usa para vincular pantallas nuevas. -->
+    <!-- Datos de la empresa. Las pantallas se vinculan con el código individual
+         que cada una muestra en su primer arranque (botón "Vincular pantalla"). -->
     <div class="empresa-bar" id="empresaBar"></div>
 
     <div id="dropzone" class="dropzone">
@@ -174,16 +175,23 @@
       }
     });
 
+    // Vincular una pantalla: el usuario ingresa el código individual que la
+    // pantalla muestra en su primer arranque.
     document.getElementById('addBtn').addEventListener('click', async () => {
-      const deviceId = prompt('ID único del dispositivo (igual al config del cliente):');
-      if (!deviceId) return;
-      const nombre = prompt('Nombre descriptivo (ej. "Pantalla Recepción"):') || '';
-      await fetch('/api/admin/device', {
+      const code = prompt('Código que muestra la pantalla en su primer arranque:');
+      if (!code || !code.trim()) return;
+      const nombre = prompt('Nombre descriptivo (opcional, ej. "Pantalla Recepción"):') || '';
+      const res = await fetch('/api/admin/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: deviceId.trim(), nombre: nombre.trim() }),
+        body: JSON.stringify({ code: code.trim(), nombre: nombre.trim() }),
       });
-      loadDevices();
+      if (res.ok) {
+        loadDevices();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'No se pudo vincular la pantalla');
+      }
     });
 
     // ---------------------- Subida (videos e imágenes) ----------------------
@@ -304,7 +312,7 @@
     window.addEventListener('dragover', (e) => e.preventDefault());
     window.addEventListener('drop', (e) => e.preventDefault());
 
-    // ---------------------- Empresa (pairing code) ----------------------
+    // ---------------------- Empresa ----------------------
     async function loadEmpresaInfo() {
       const bar = document.getElementById('empresaBar');
       try {
@@ -313,16 +321,8 @@
         const e = await res.json();
         bar.innerHTML = `
           <span>Empresa: <strong>${esc(e.nombre)}</strong></span>
-          <span>· Código para vincular pantallas:
-            <code class="pcode">${esc(e.pairing_code)}</code>
-            <button class="btn ghost small" id="copyCode">Copiar</button>
-          </span>`;
-        document.getElementById('copyCode').addEventListener('click', () => {
-          navigator.clipboard?.writeText(e.pairing_code);
-          const b = document.getElementById('copyCode');
-          b.innerHTML = icon('check_circle') + ' Copiado';
-          setTimeout(() => (b.textContent = 'Copiar'), 1500);
-        });
+          <span class="muted">· Para añadir una pantalla, pulsa «Vincular pantalla»
+            e ingresa el código que la pantalla muestra en su primer arranque.</span>`;
       } catch {}
     }
 

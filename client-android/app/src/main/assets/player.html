@@ -86,10 +86,36 @@
     .w-clima .wx-city { font-size: clamp(14px, 1.6vw, 22px); font-weight: 600; }
     .w-clima .wx-cond { font-size: clamp(12px, 1.3vw, 18px); color: var(--muted); }
     .w-clima .wx-extra { margin-left: auto; text-align: right; color: var(--muted); font-size: clamp(11px, 1.2vw, 16px); line-height: 1.6; }
+
+    /* ---- Overlay: pantalla sin asignar (muestra el codigo de vinculacion) ---- */
+    #pairing-overlay {
+      position: fixed; inset: 0; z-index: 100; display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 28px; text-align: center; padding: 40px;
+      background: radial-gradient(1200px 700px at 50% 30%, #14233c 0%, #060a12 70%);
+    }
+    #pairing-overlay.show { display: flex; }
+    #pairing-overlay .po-title { font-size: 34px; font-weight: 700; }
+    #pairing-overlay .po-sub { font-size: 20px; color: var(--muted); max-width: 900px; line-height: 1.5; }
+    #pairing-overlay .po-code {
+      font-size: 96px; font-weight: 800; letter-spacing: 12px;
+      font-variant-numeric: tabular-nums;
+      padding: 24px 48px; border-radius: 20px;
+      background: rgba(59, 130, 246, 0.12); border: 2px solid var(--accent); color: #fff;
+    }
+    #pairing-overlay .po-foot { font-size: 16px; color: var(--muted); }
   </style>
 </head>
 <body>
   <div id="stage"><div id="app"></div></div>
+
+  <div id="pairing-overlay">
+    <div class="po-title">Pantalla sin asignar</div>
+    <div class="po-sub">Ingresa este código en el panel de administración
+      (Dispositivos → «Vincular pantalla») para asignar esta pantalla a tu empresa.</div>
+    <div class="po-code" id="pairingCode">--------</div>
+    <div class="po-foot">La pantalla se activará automáticamente al vincularla.</div>
+  </div>
 
   <script>
     // ====================================================================
@@ -362,9 +388,24 @@
       if (typeof x === 'string') { try { return JSON.parse(x); } catch { return x; } }
       return x;
     }
+
+    // Overlay de "pantalla sin asignar": muestra el codigo de vinculacion.
+    function applyPairing(p) {
+      const ov = document.getElementById('pairing-overlay');
+      const codeEl = document.getElementById('pairingCode');
+      if (p && p.claimCode) {
+        // Agrupa de a 4 para leerlo facil (ej. "1234 5678").
+        codeEl.textContent = String(p.claimCode).replace(/(.{4})(?=.)/g, '$1 ');
+        ov.classList.add('show');
+      } else {
+        ov.classList.remove('show');
+      }
+    }
+
     window.__signage = {
       layout: (l) => applyLayout(asData(l)),
       weather: (w) => applyWeather(asData(w)),
+      pairing: (p) => applyPairing(asData(p)),
       playlist: () => {},
       images: () => {},
       settings: () => {},
