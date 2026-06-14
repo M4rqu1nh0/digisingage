@@ -110,7 +110,10 @@
         loadUsers();
       }
       if (e.target.classList.contains('udel')) {
-        if (confirm('¿Eliminar este usuario?')) {
+        const ok = await confirmModal('¿Eliminar este usuario?', {
+          title: 'Eliminar usuario', confirmText: 'Eliminar', danger: true,
+        });
+        if (ok) {
           await fetch('/api/admin/users/' + encodeURIComponent(id), { method: 'DELETE' });
           loadUsers();
         }

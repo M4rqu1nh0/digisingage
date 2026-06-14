@@ -52,7 +52,7 @@
         <summary><span><span class="material-symbols-outlined" aria-hidden="true">movie</span> Biblioteca de videos (<span id="libCount">0</span>)</span></summary>
         <div class="lib-wrap">
           <table class="lib-table">
-            <thead><tr><th>Nombre del archivo</th></tr></thead>
+            <thead><tr><th>Nombre del archivo</th><th class="lib-act-col"></th></tr></thead>
             <tbody id="libBody"></tbody>
           </table>
           <div class="lib-empty muted" id="libEmpty">Aún no hay videos. Sube alguno con «Subir video».</div>
@@ -63,7 +63,7 @@
         <summary><span><span class="material-symbols-outlined" aria-hidden="true">photo_library</span> Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span></summary>
         <div class="lib-wrap">
           <table class="lib-table">
-            <thead><tr><th>Nombre del archivo</th></tr></thead>
+            <thead><tr><th>Nombre del archivo</th><th class="lib-act-col"></th></tr></thead>
             <tbody id="imgLibBody"></tbody>
           </table>
           <div class="lib-empty muted" id="imgLibEmpty">Aún no hay imágenes. Sube alguna con «Subir imagen».</div>
@@ -73,6 +73,21 @@
 
     <div class="cards" id="cards"></div>
   </div>
+
+  <!-- Modal de alta de dispositivo (sustituye a prompt). -->
+  <dialog id="deviceModal" class="modal">
+    <form method="dialog" class="modal-card" id="deviceForm">
+      <h3 class="modal-title">Vincular dispositivo</h3>
+      <label for="devIdInput">ID único del dispositivo</label>
+      <input type="text" id="devIdInput" placeholder="Igual al config del cliente" required />
+      <label for="devNameInput">Nombre descriptivo</label>
+      <input type="text" id="devNameInput" placeholder='Ej. "Pantalla Recepción"' />
+      <div class="modal-actions">
+        <button type="submit" value="cancel" class="btn ghost" formnovalidate>Cancelar</button>
+        <button type="submit" value="ok" class="btn">Agregar</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="/js/common.js"></script>
   <script>
@@ -96,8 +111,55 @@
             <div class="lib-name">${esc(m.name)}</div>
             <div class="lib-meta">${esc(mediaMetaLine(m))}</div>
           </td>
+          <td class="lib-act">
+            <button class="btn ghost small lib-del" data-kind="${ids.kind}"
+              data-file="${esc(m.name)}" title="Eliminar">${icon('delete')}</button>
+          </td>
         </tr>`).join('');
     }
+
+    // Borrado de medios (opción A: el backend bloquea si el archivo está en uso).
+    // showModal viene de common.js.
+    async function deleteMedia(kind, file) {
+      const tipo = kind === 'image' ? 'imagen' : 'video';
+      const ok = await showModal({
+        title: `Eliminar ${tipo}`,
+        message: `¿Eliminar «${file}»? Esta acción no se puede deshacer.`,
+        confirmText: 'Eliminar',
+        cancelText: 'Cancelar',
+        danger: true,
+      });
+      if (!ok) return;
+      const base = kind === 'image' ? '/api/admin/images/' : '/api/admin/media/';
+      const res = await fetch(base + encodeURIComponent(file), { method: 'DELETE' });
+      if (res.ok) {
+        if (kind === 'image') loadImages(); else loadMedia();
+        return;
+      }
+      let data = {};
+      try { data = await res.json(); } catch {}
+      if (res.status === 409 && Array.isArray(data.enUso)) {
+        await showModal({
+          title: 'No se puede eliminar',
+          message: `«${file}» está en uso por estos dispositivos. Quítalo de ellos (al editarlos) antes de borrarlo:`,
+          items: data.enUso.map((d) => d.nombre),
+          confirmText: 'Entendido',
+        });
+      } else {
+        await showModal({
+          title: 'Error',
+          message: data.error || 'No se pudo eliminar el archivo.',
+          confirmText: 'Entendido',
+        });
+      }
+    }
+
+    ['libBody', 'imgLibBody'].forEach((id) => {
+      document.getElementById(id).addEventListener('click', (e) => {
+        const btn = e.target.closest('.lib-del');
+        if (btn) deleteMedia(btn.dataset.kind, btn.dataset.file);
+      });
+    });
 
     async function loadMedia() {
       try {
@@ -110,7 +172,7 @@
           if (lbl) lbl.textContent = maxUploadMB
             ? `Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp · Máx. ${maxUploadMB} MB`
             : 'Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp';
-          renderSimpleLib(mediaCache, { body: 'libBody', count: 'libCount', empty: 'libEmpty' });
+          renderSimpleLib(mediaCache, { body: 'libBody', count: 'libCount', empty: 'libEmpty', kind: 'video' });
         }
       } catch {}
     }
@@ -121,7 +183,7 @@
         if (res.ok) {
           const data = await res.json();
           imagesCache = data.images || [];
-          renderSimpleLib(imagesCache, { body: 'imgLibBody', count: 'imgLibCount', empty: 'imgLibEmpty' });
+          renderSimpleLib(imagesCache, { body: 'imgLibBody', count: 'imgLibCount', empty: 'imgLibEmpty', kind: 'image' });
         }
       } catch {}
     }
@@ -174,14 +236,29 @@
       }
     });
 
-    document.getElementById('addBtn').addEventListener('click', async () => {
-      const deviceId = prompt('ID único del dispositivo (igual al config del cliente):');
-      if (!deviceId) return;
-      const nombre = prompt('Nombre descriptivo (ej. "Pantalla Recepción"):') || '';
+    // Alta de dispositivo mediante modal de formulario (sustituye a prompt).
+    const deviceModal = document.getElementById('deviceModal');
+    const devIdInput = document.getElementById('devIdInput');
+    const devNameInput = document.getElementById('devNameInput');
+    deviceModal.addEventListener('click', (e) => {
+      if (e.target === deviceModal) deviceModal.close('cancel');
+    });
+    document.getElementById('addBtn').addEventListener('click', () => {
+      devIdInput.value = '';
+      devNameInput.value = '';
+      deviceModal.returnValue = 'cancel';
+      deviceModal.showModal();
+    });
+    document.getElementById('deviceForm').addEventListener('submit', async (e) => {
+      // El botón Cancelar (value="cancel") cierra sin enviar.
+      if (e.submitter && e.submitter.value !== 'ok') return;
+      const deviceId = devIdInput.value.trim();
+      if (!deviceId) { e.preventDefault(); devIdInput.focus(); return; }
+      const nombre = devNameInput.value.trim();
       await fetch('/api/admin/device', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: deviceId.trim(), nombre: nombre.trim() }),
+        body: JSON.stringify({ deviceId, nombre }),
       });
       loadDevices();
     });

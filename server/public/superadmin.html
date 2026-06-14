@@ -70,6 +70,7 @@
     </div>
   </div>
 
+  <script src="/js/common.js"></script>
   <script>
     const empBody = document.getElementById('empBody');
     const empEmpty = document.getElementById('empEmpty');
@@ -153,7 +154,11 @@
       const id = tr.dataset.id;
 
       if (e.target.classList.contains('rotate')) {
-        if (!confirm('¿Regenerar el pairing code? Las pantallas nuevas deberán usar el nuevo código.')) return;
+        const ok = await confirmModal(
+          'Las pantallas nuevas deberán usar el nuevo código.',
+          { title: 'Regenerar pairing code', confirmText: 'Regenerar' }
+        );
+        if (!ok) return;
         const res = await fetch(`/api/super/empresas/${encodeURIComponent(id)}/rotate-code`, { method: 'POST' });
         if (res.ok) loadEmpresas();
         return;
