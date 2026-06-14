@@ -97,6 +97,28 @@ if (!dispCols.some((c) => c.name === 'layout_json')) {
   db.exec('ALTER TABLE dispositivos ADD COLUMN layout_json TEXT');
 }
 
+// --- Migracion: unicidad GLOBAL del nombre de usuario ---
+// El login se hace solo con usuario + contrasena (sin empresa), asi que el
+// nombre de usuario debe identificar a UNA sola cuenta en todo el sistema
+// (un usuario no puede pertenecer a dos empresas). Si una BD antigua tuviera
+// el mismo nombre repetido en distintas empresas, abortamos con un mensaje
+// claro en vez de fallar de forma criptica al crear el indice unico.
+{
+  const dupUsers = db
+    .prepare('SELECT usuario FROM usuarios GROUP BY usuario COLLATE NOCASE HAVING COUNT(*) > 1')
+    .all();
+  if (dupUsers.length) {
+    throw new Error(
+      'No se puede aplicar la unicidad global de usuarios: hay nombres repetidos en ' +
+        'distintas empresas (' + dupUsers.map((d) => d.usuario).join(', ') + '). ' +
+        'Renombralos para que cada usuario sea unico antes de actualizar.'
+    );
+  }
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios (usuario COLLATE NOCASE)'
+  );
+}
+
 // ----------------------------- Hashing (scrypt) -----------------------------
 // Sin dependencias nativas: usamos crypto.scrypt (incluido en Node).
 
@@ -144,12 +166,8 @@ const stmts = {
     VALUES (@id, @empresa_id, @usuario, @password_hash, @rol, 1, @created_at)
   `),
   getUserById: db.prepare('SELECT * FROM usuarios WHERE id = ?'),
-  getUserByLogin: db.prepare(
-    'SELECT * FROM usuarios WHERE empresa_id = ? AND usuario = ? COLLATE NOCASE'
-  ),
-  getSuperByLogin: db.prepare(
-    "SELECT * FROM usuarios WHERE empresa_id IS NULL AND rol = 'super_admin' AND usuario = ? COLLATE NOCASE"
-  ),
+  // Login: el nombre de usuario es unico en todo el sistema.
+  getUserByUsuario: db.prepare('SELECT * FROM usuarios WHERE usuario = ? COLLATE NOCASE'),
   countSuper: db.prepare("SELECT COUNT(*) AS n FROM usuarios WHERE rol = 'super_admin'"),
   listUsersByEmpresa: db.prepare(
     'SELECT id, empresa_id, usuario, rol, activo, created_at FROM usuarios WHERE empresa_id = ? ORDER BY usuario COLLATE NOCASE'
@@ -291,18 +309,27 @@ function createUser({ empresaId = null, usuario, password, rol }) {
   return stmts.getUserById.get(id);
 }
 
+/**
+ * Crea una empresa junto con su admin inicial de forma ATOMICA: si el nombre de
+ * usuario del admin ya existe (unico global) o falla cualquier paso, se revierte
+ * todo y no queda una empresa sin admin. Devuelve la empresa creada.
+ */
+const createEmpresaWithAdmin = db.transaction(({ nombre, adminUser, adminPass }) => {
+  const empresa = createEmpresa(nombre);
+  createUser({ empresaId: empresa.id, usuario: adminUser, password: adminPass, rol: 'admin' });
+  return empresa;
+});
+
 function getUserById(id) {
   return stmts.getUserById.get(id);
 }
 
-/** Busca el usuario de una empresa por login (para autenticacion). */
-function getUserByLogin(empresaId, usuario) {
-  return stmts.getUserByLogin.get(empresaId, String(usuario).trim());
-}
-
-/** Busca el super-admin por login (empresa_id NULL). */
-function getSuperAdminByLogin(usuario) {
-  return stmts.getSuperByLogin.get(String(usuario).trim());
+/**
+ * Busca un usuario por su nombre (unico en todo el sistema) para autenticacion.
+ * Devuelve el registro (con empresa_id y rol) o undefined.
+ */
+function getUserByUsuario(usuario) {
+  return stmts.getUserByUsuario.get(String(usuario).trim());
 }
 
 function listUsers(empresaId) {
@@ -529,11 +556,11 @@ module.exports = {
   getEmpresaByNombre,
   rotatePairingCode,
   setEmpresaActiva,
+  createEmpresaWithAdmin,
   // usuarios
   createUser,
   getUserById,
-  getUserByLogin,
-  getSuperAdminByLogin,
+  getUserByUsuario,
   listUsers,
   setUserActivo,
   deleteUser,

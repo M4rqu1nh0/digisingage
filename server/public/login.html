@@ -15,11 +15,6 @@
       <div class="brand"><span class="dot"></span> DigiSignage</div>
       <div class="subtitle">Panel de Administración</div>
 
-      <label for="empresa">Empresa</label>
-      <input type="text" id="empresa" autocomplete="organization"
-             placeholder="Nombre de tu empresa" />
-      <small class="muted">Los super-administradores dejan este campo vacío.</small>
-
       <label for="usuario">Usuario</label>
       <input type="text" id="usuario" autocomplete="username" required autofocus />
 
@@ -51,7 +46,6 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       errorBox.classList.remove('show');
-      const empresa = document.getElementById('empresa').value.trim();
       const usuario = document.getElementById('usuario').value.trim();
       const password = document.getElementById('password').value;
 
@@ -59,7 +53,7 @@
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ empresa, usuario, password }),
+          body: JSON.stringify({ usuario, password }),
         });
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
