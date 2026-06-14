@@ -5,15 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DigiSignage · Editar pantalla</title>
   <link rel="stylesheet" href="/css/styles.css" />
+  <script src="/js/theme.js"></script>
 </head>
 <body>
   <div class="topbar">
     <div class="left">
       <div class="brand"><span class="dot"></span> DigiSignage</div>
-      <a class="backlink" href="/dashboard.html">← Volver a Dispositivos</a>
+      <a class="backlink" href="/dashboard.html"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Volver a Dispositivos</a>
     </div>
     <div class="right">
       <span class="muted" id="clock"></span>
+      <button class="btn ghost small theme-toggle" data-theme-toggle></button>
       <button class="btn ghost small" id="logoutBtn">Salir</button>
     </div>
   </div>
@@ -28,10 +30,10 @@
       </div>
       <div class="right" style="display:flex; gap:8px; align-items:center;">
         <div class="menu" id="devMenu">
-          <button class="btn ghost small menu-trigger" id="devMenuBtn" aria-haspopup="true" aria-expanded="false">Acciones ▾</button>
+          <button class="btn ghost small menu-trigger" id="devMenuBtn" aria-haspopup="true" aria-expanded="false">Acciones <span class="material-symbols-outlined" aria-hidden="true">expand_more</span></button>
           <div class="menu-list" role="menu">
-            <button class="menu-item" id="renameBtn" role="menuitem">✏️ Renombrar</button>
-            <button class="menu-item danger" id="deleteBtn" role="menuitem">🗑️ Eliminar</button>
+            <button class="menu-item" id="renameBtn" role="menuitem"><span class="material-symbols-outlined" aria-hidden="true">edit</span> Renombrar</button>
+            <button class="menu-item danger" id="deleteBtn" role="menuitem"><span class="material-symbols-outlined" aria-hidden="true">delete</span> Eliminar</button>
           </div>
         </div>
       </div>
@@ -44,7 +46,7 @@
       <div class="lib-grid">
         <details class="library" open>
           <summary>
-            <span>📚 Biblioteca de videos (<span id="libCount">0</span>)</span>
+            <span><span class="material-symbols-outlined" aria-hidden="true">movie</span> Biblioteca de videos (<span id="libCount">0</span>)</span>
             <span class="muted" id="libSelInfo">0 seleccionado(s)</span>
           </summary>
           <div class="lib-wrap">
@@ -63,7 +65,7 @@
 
         <details class="library" open>
           <summary>
-            <span>🖼️ Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span>
+            <span><span class="material-symbols-outlined" aria-hidden="true">photo_library</span> Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span>
             <span class="muted" id="imgLibSelInfo">0 seleccionado(s)</span>
           </summary>
           <div class="lib-wrap">
@@ -84,7 +86,7 @@
       <!-- Editor de disposición + contenido por zona -->
       <div class="library" style="margin-top:18px;">
         <div class="toolbar" style="margin-bottom:12px;">
-          <h2 style="font-size:16px;">Disposición y contenido</h2>
+          <h2 style="font-size:1.143rem;">Disposición y contenido</h2>
           <div style="display:flex; gap:8px; align-items:center;">
             <button class="btn" id="saveBtn">Guardar Cambios</button>
             <span class="save-hint" id="saveHint"></span>
@@ -163,22 +165,22 @@
     // ---------------------- Listas ordenables ----------------------
     function plItemHTML(file) {
       return `<li class="pl-item" draggable="true" data-file="${esc(file)}">
-        <span class="pl-handle" title="Arrastra para ordenar">⠿</span>
+        <span class="pl-handle" title="Arrastra para ordenar">${icon('drag_indicator')}</span>
         <span class="pl-name">${esc(file)}</span>
-        <button class="pl-dup" title="Duplicar (repetir)">⧉</button>
-        <button class="pl-del" title="Quitar de la lista">✕</button>
+        <button class="pl-dup" title="Duplicar (repetir)">${icon('content_copy')}</button>
+        <button class="pl-del" title="Quitar de la lista">${icon('close')}</button>
       </li>`;
     }
     function imgItemHTML(file, segundos) {
       const s = Number(segundos) > 0 ? Math.round(segundos) : DEFAULT_IMAGE_SECONDS;
       return `<li class="pl-item" draggable="true" data-file="${esc(file)}">
-        <span class="pl-handle" title="Arrastra para ordenar">⠿</span>
+        <span class="pl-handle" title="Arrastra para ordenar">${icon('drag_indicator')}</span>
         <span class="pl-name">${esc(file)}</span>
         <label class="pl-secs" title="Segundos en pantalla">
           <input type="number" class="pl-secs-input" min="1" step="1" value="${s}" /> s
         </label>
-        <button class="pl-dup" title="Duplicar (repetir)">⧉</button>
-        <button class="pl-del" title="Quitar de la lista">✕</button>
+        <button class="pl-dup" title="Duplicar (repetir)">${icon('content_copy')}</button>
+        <button class="pl-del" title="Quitar de la lista">${icon('close')}</button>
       </li>`;
     }
     function makeItem(file) {
@@ -245,11 +247,11 @@
       const items = (config && config.items) || [];
       return `
         <div class="media-section" data-kind="video">
-          <label class="muted">Videos (arrastra · ⧉ duplicar · ✕ quitar)</label>
+          <label class="muted">Videos (arrastra · ${icon('content_copy')} duplicar · ${icon('close')} quitar)</label>
           <ul class="playlist-list" data-kind="video">${items.map(plItemHTML).join('')}</ul>
           <div class="pl-empty muted">Sin videos. Selecciónalos en la biblioteca y pulsa «Añadir videos».</div>
           <div class="section-actions">
-            <button class="btn ghost small addsel" type="button">➕ Añadir videos</button>
+            <button class="btn ghost small addsel" type="button">${icon('playlist_add')} Añadir videos</button>
           </div>
         </div>`;
     }
@@ -272,7 +274,7 @@
           <ul class="playlist-list" data-kind="imagenes">${rows}</ul>
           <div class="pl-empty muted">Sin imágenes. Selecciónalas en la biblioteca y pulsa «Añadir imágenes».</div>
           <div class="section-actions">
-            <button class="btn ghost small addsel" type="button">➕ Añadir imágenes</button>
+            <button class="btn ghost small addsel" type="button">${icon('playlist_add')} Añadir imágenes</button>
           </div>
         </div>`;
     }
@@ -480,9 +482,9 @@
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         renderLayoutEditor(editorEl, data.layout);
-        hint.textContent = '✔ Guardado'; hint.className = 'save-hint ok';
+        hint.innerHTML = icon('check_circle') + ' Guardado'; hint.className = 'save-hint ok';
       } else {
-        hint.textContent = '✖ ' + (data.error || 'Error'); hint.className = 'save-hint err';
+        hint.innerHTML = icon('error') + ' ' + esc(data.error || 'Error'); hint.className = 'save-hint err';
       }
       setTimeout(() => (hint.textContent = ''), 3000);
     });

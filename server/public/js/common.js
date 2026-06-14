@@ -5,6 +5,12 @@
  * Script plano (sin módulos): define funciones globales.
  */
 
+// Devuelve el HTML de un icono Material Symbols (decorativo).
+// `extra` añade clases opcionales. Ej.: icon('edit') -> <span ...>edit</span>.
+function icon(name, extra) {
+  return `<span class="material-symbols-outlined${extra ? ' ' + extra : ''}" aria-hidden="true">${name}</span>`;
+}
+
 // Escapa texto para insertarlo de forma segura en HTML.
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
