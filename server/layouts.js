@@ -212,9 +212,14 @@ function migrateFromPlaylists(videoList, imageList) {
   };
 }
 
-/** Layout vacio por defecto (preset "cuatro" sin contenido). */
+/** Layout vacio por defecto: una sola zona (preset "solo") con video sin contenido. */
 function defaultLayout() {
-  return migrateFromPlaylists([], []);
+  return {
+    preset: 'solo',
+    zones: {
+      a: { widget: 'video', config: { items: [] } },
+    },
+  };
 }
 
 module.exports = {
