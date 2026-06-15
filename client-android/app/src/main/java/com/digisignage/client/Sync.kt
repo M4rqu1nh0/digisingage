@@ -40,6 +40,7 @@ object Sync {
     data class Heartbeat(
         val status: String,
         val claimCode: String?,
+        val configured: Boolean,
         val playlist: List<String>,
         val images: List<String>,
         val layout: String?,
@@ -64,6 +65,7 @@ object Sync {
             return Heartbeat(
                 status = json.optString("status", "ok"),
                 claimCode = if (json.isNull("claimCode")) null else json.optString("claimCode").ifBlank { null },
+                configured = json.optBoolean("configured", false),
                 playlist = toStringList(json.optJSONArray("playlist")),
                 images = toStringList(json.optJSONArray("images")),
                 layout = json.optJSONObject("layout")?.toString(),

@@ -104,6 +104,23 @@
       background: rgba(59, 130, 246, 0.12); border: 2px solid var(--accent); color: #fff;
     }
     #pairing-overlay .po-foot { font-size: 16px; color: var(--muted); }
+
+    /* ---- Overlay: vinculada, esperando que el admin configure el contenido ---- */
+    #waiting-overlay {
+      position: fixed; inset: 0; z-index: 100; display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 24px; text-align: center; padding: 40px;
+      background: radial-gradient(1200px 700px at 50% 30%, #14233c 0%, #060a12 70%);
+    }
+    #waiting-overlay.show { display: flex; }
+    #waiting-overlay .wo-check {
+      width: 104px; height: 104px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 60px; line-height: 1; color: #fff;
+      background: rgba(34, 197, 94, 0.16); border: 3px solid #22c55e;
+    }
+    #waiting-overlay .wo-title { font-size: 34px; font-weight: 700; }
+    #waiting-overlay .wo-sub { font-size: 20px; color: var(--muted); max-width: 900px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -115,6 +132,12 @@
       (Dispositivos → «Vincular pantalla») para asignar esta pantalla a tu empresa.</div>
     <div class="po-code" id="pairingCode">--------</div>
     <div class="po-foot">La pantalla se activará automáticamente al vincularla.</div>
+  </div>
+
+  <div id="waiting-overlay">
+    <div class="wo-check">✓</div>
+    <div class="wo-title">Pantalla vinculada</div>
+    <div class="wo-sub">Esperando a que se configure el contenido desde el panel…</div>
   </div>
 
   <script>
@@ -389,16 +412,27 @@
       return x;
     }
 
-    // Overlay de "pantalla sin asignar": muestra el codigo de vinculacion.
+    // Overlays de vinculacion segun el estado que envia el servicio:
+    //   { status:'unclaimed', claimCode } -> codigo de vinculacion
+    //   { status:'waiting' }              -> vinculada, esperando contenido
+    //   null                              -> activa (sin overlay)
     function applyPairing(p) {
-      const ov = document.getElementById('pairing-overlay');
+      const pair = document.getElementById('pairing-overlay');
+      const wait = document.getElementById('waiting-overlay');
       const codeEl = document.getElementById('pairingCode');
-      if (p && p.claimCode) {
+      const status = p && p.status ? p.status : (p && p.claimCode ? 'unclaimed' : null);
+
+      if (status === 'unclaimed' && p.claimCode) {
         // Agrupa de a 4 para leerlo facil (ej. "1234 5678").
         codeEl.textContent = String(p.claimCode).replace(/(.{4})(?=.)/g, '$1 ');
-        ov.classList.add('show');
+        pair.classList.add('show');
+        wait.classList.remove('show');
+      } else if (status === 'waiting') {
+        wait.classList.add('show');
+        pair.classList.remove('show');
       } else {
-        ov.classList.remove('show');
+        pair.classList.remove('show');
+        wait.classList.remove('show');
       }
     }
 

@@ -267,6 +267,7 @@ app.post('/api/heartbeat', (req, res) => {
     status: 'ok',
     deviceId,
     serverTime: new Date().toISOString(),
+    configured: result.configured,
     layout: result.layout,
     playlist: result.playlist,
     images: result.images,
