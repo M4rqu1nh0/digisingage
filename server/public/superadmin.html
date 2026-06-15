@@ -57,7 +57,6 @@
           <thead>
             <tr>
               <th>Empresa</th>
-              <th>Pairing code</th>
               <th>Pantallas</th>
               <th>Estado</th>
               <th>Acciones</th>
@@ -106,8 +105,6 @@
       empBody.innerHTML = empresas.map((e) => `
         <tr data-id="${esc(e.id)}">
           <td>${esc(e.nombre)}</td>
-          <td><code class="pcode">${esc(e.pairing_code)}</code>
-              <button class="btn ghost small rotate" title="Regenerar código">${icon('autorenew')}</button></td>
           <td>${e.dispositivos}</td>
           <td>
             <span class="status ${e.activa ? 'online' : 'offline'}">
@@ -136,7 +133,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        hint.innerHTML = `${icon('check_circle')} Creada · Pairing code: ${esc(data.empresa.pairing_code)}`;
+        hint.innerHTML = `${icon('check_circle')} Empresa creada`;
         hint.className = 'save-hint ok';
         e.target.reset();
         loadEmpresas();
@@ -151,13 +148,6 @@
       const tr = e.target.closest('tr');
       if (!tr) return;
       const id = tr.dataset.id;
-
-      if (e.target.classList.contains('rotate')) {
-        if (!confirm('¿Regenerar el pairing code? Las pantallas nuevas deberán usar el nuevo código.')) return;
-        const res = await fetch(`/api/super/empresas/${encodeURIComponent(id)}/rotate-code`, { method: 'POST' });
-        if (res.ok) loadEmpresas();
-        return;
-      }
 
       if (e.target.classList.contains('toggle')) {
         const activar = e.target.textContent.trim() === 'Activar';

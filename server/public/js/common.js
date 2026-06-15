@@ -88,6 +88,127 @@ async function getMe() {
   return me;
 }
 
+/* ----------------- Modales (sustituyen a alert/confirm/prompt nativos) ----------------- */
+// Regla del proyecto: nunca usar alert()/confirm()/prompt(); siempre <dialog>.
+
+// Inyecta una sola vez el <dialog> genérico de mensaje/confirmación.
+let _msgModal = null;
+function _ensureMsgModal() {
+  if (_msgModal) return _msgModal;
+  const dlg = document.createElement('dialog');
+  dlg.className = 'modal';
+  dlg.innerHTML =
+    '<form method="dialog" class="modal-card">' +
+    '  <h3 class="modal-title"></h3>' +
+    '  <div class="modal-msg"></div>' +
+    '  <div class="modal-actions">' +
+    '    <button type="submit" value="cancel" class="btn ghost" data-cancel>Cancelar</button>' +
+    '    <button type="submit" value="ok" class="btn" data-ok>Aceptar</button>' +
+    '  </div>' +
+    '</form>';
+  document.body.appendChild(dlg);
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close('cancel'); });
+  _msgModal = {
+    dlg,
+    title: dlg.querySelector('.modal-title'),
+    msg: dlg.querySelector('.modal-msg'),
+    ok: dlg.querySelector('[data-ok]'),
+    cancel: dlg.querySelector('[data-cancel]'),
+  };
+  return _msgModal;
+}
+
+/**
+ * Modal genérico. Devuelve Promise<boolean> (true = aceptar).
+ * - Confirmación: pasar `cancelText` para mostrar el botón Cancelar.
+ * - Informativo (estilo alert): omitir `cancelText` -> solo botón de aceptar.
+ * - `items`: lista opcional de líneas (insertadas como texto: sin riesgo de XSS).
+ */
+function showModal({ title = '', message = '', items = null, confirmText = 'Aceptar', cancelText = null, danger = false } = {}) {
+  const m = _ensureMsgModal();
+  m.title.textContent = title;
+  m.title.style.display = title ? '' : 'none';
+  m.msg.textContent = '';
+  if (message) {
+    const p = document.createElement('p');
+    p.className = 'modal-line';
+    p.textContent = message;
+    m.msg.appendChild(p);
+  }
+  if (Array.isArray(items) && items.length) {
+    const ul = document.createElement('ul');
+    ul.className = 'modal-list';
+    items.forEach((t) => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+    m.msg.appendChild(ul);
+  }
+  m.ok.textContent = confirmText;
+  m.ok.className = 'btn' + (danger ? ' danger' : '');
+  m.cancel.textContent = cancelText || 'Cancelar';
+  m.cancel.style.display = cancelText ? '' : 'none';
+  return new Promise((resolve) => {
+    m.dlg.returnValue = 'cancel';
+    m.dlg.addEventListener('close', () => resolve(m.dlg.returnValue === 'ok'), { once: true });
+    m.dlg.showModal();
+  });
+}
+
+// Atajos: confirmModal -> Promise<boolean>; alertModal -> Promise<void>.
+function confirmModal(message, opts = {}) {
+  return showModal({ title: 'Confirmar', confirmText: 'Aceptar', cancelText: 'Cancelar', ...opts, message });
+}
+function alertModal(message, opts = {}) {
+  return showModal({ confirmText: 'Entendido', ...opts, message, cancelText: null });
+}
+
+// Modal con un campo de texto (sustituye a prompt). Devuelve string (recortado) o null.
+let _inputModal = null;
+function _ensureInputModal() {
+  if (_inputModal) return _inputModal;
+  const dlg = document.createElement('dialog');
+  dlg.className = 'modal';
+  dlg.innerHTML =
+    '<form method="dialog" class="modal-card">' +
+    '  <h3 class="modal-title"></h3>' +
+    '  <label for="_inputModalField" data-label></label>' +
+    '  <input type="text" id="_inputModalField" />' +
+    '  <div class="modal-actions">' +
+    '    <button type="submit" value="cancel" class="btn ghost" formnovalidate>Cancelar</button>' +
+    '    <button type="submit" value="ok" class="btn" data-ok>Aceptar</button>' +
+    '  </div>' +
+    '</form>';
+  document.body.appendChild(dlg);
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close('cancel'); });
+  _inputModal = {
+    dlg,
+    title: dlg.querySelector('.modal-title'),
+    label: dlg.querySelector('[data-label]'),
+    input: dlg.querySelector('#_inputModalField'),
+    ok: dlg.querySelector('[data-ok]'),
+  };
+  return _inputModal;
+}
+
+function promptModal({ title = '', label = '', value = '', placeholder = '', confirmText = 'Aceptar', required = true } = {}) {
+  const m = _ensureInputModal();
+  m.title.textContent = title;
+  m.title.style.display = title ? '' : 'none';
+  m.label.textContent = label;
+  m.label.style.display = label ? '' : 'none';
+  m.input.value = value;
+  m.input.placeholder = placeholder;
+  m.input.required = required;
+  m.ok.textContent = confirmText;
+  return new Promise((resolve) => {
+    m.dlg.returnValue = 'cancel';
+    m.dlg.addEventListener('close', () => {
+      resolve(m.dlg.returnValue === 'ok' ? m.input.value.trim() : null);
+    }, { once: true });
+    m.dlg.showModal();
+    m.input.focus();
+    m.input.select();
+  });
+}
+
 /**
  * Pinta el menú superior en el contenedor #topnav. `active` es la clave de la
  * página actual ('dispositivos' | 'usuarios'). "Usuarios" solo se muestra a admin.

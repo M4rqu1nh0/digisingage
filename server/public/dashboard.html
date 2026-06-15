@@ -20,7 +20,7 @@
       <input type="file" id="imgInput" accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.bmp" multiple hidden />
       <button class="btn ghost small" id="uploadBtn"><span class="material-symbols-outlined" aria-hidden="true">upload</span> Subir video</button>
       <button class="btn ghost small" id="uploadImgBtn"><span class="material-symbols-outlined" aria-hidden="true">add_photo_alternate</span> Subir imagen</button>
-      <button class="btn ghost small" id="addBtn"><span class="material-symbols-outlined" aria-hidden="true">add</span> Dispositivo</button>
+      <button class="btn ghost small" id="addBtn"><span class="material-symbols-outlined" aria-hidden="true">add</span> Vincular pantalla</button>
       <button class="btn ghost small" id="logoutBtn">Salir</button>
     </div>
   </div>
@@ -34,7 +34,8 @@
       <div class="muted">Se actualiza cada 15&nbsp;s · Verde = activo en últimos 3&nbsp;min</div>
     </div>
 
-    <!-- Datos de la empresa: el pairing code se usa para vincular pantallas nuevas. -->
+    <!-- Datos de la empresa. Las pantallas se vinculan con el código individual
+         que cada una muestra en su primer arranque (botón "Vincular pantalla"). -->
     <div class="empresa-bar" id="empresaBar"></div>
 
     <div id="dropzone" class="dropzone">
@@ -52,7 +53,7 @@
         <summary><span><span class="material-symbols-outlined" aria-hidden="true">movie</span> Biblioteca de videos (<span id="libCount">0</span>)</span></summary>
         <div class="lib-wrap">
           <table class="lib-table">
-            <thead><tr><th>Nombre del archivo</th></tr></thead>
+            <thead><tr><th>Nombre del archivo</th><th class="lib-act-col"></th></tr></thead>
             <tbody id="libBody"></tbody>
           </table>
           <div class="lib-empty muted" id="libEmpty">Aún no hay videos. Sube alguno con «Subir video».</div>
@@ -63,7 +64,7 @@
         <summary><span><span class="material-symbols-outlined" aria-hidden="true">photo_library</span> Biblioteca de imágenes (<span id="imgLibCount">0</span>)</span></summary>
         <div class="lib-wrap">
           <table class="lib-table">
-            <thead><tr><th>Nombre del archivo</th></tr></thead>
+            <thead><tr><th>Nombre del archivo</th><th class="lib-act-col"></th></tr></thead>
             <tbody id="imgLibBody"></tbody>
           </table>
           <div class="lib-empty muted" id="imgLibEmpty">Aún no hay imágenes. Sube alguna con «Subir imagen».</div>
@@ -96,8 +97,55 @@
             <div class="lib-name">${esc(m.name)}</div>
             <div class="lib-meta">${esc(mediaMetaLine(m))}</div>
           </td>
+          <td class="lib-act">
+            <button class="btn ghost small lib-del" data-kind="${ids.kind}"
+              data-file="${esc(m.name)}" title="Eliminar">${icon('delete')}</button>
+          </td>
         </tr>`).join('');
     }
+
+    // Borrado de medios (opción A: el backend bloquea si el archivo está en uso).
+    // showModal viene de common.js.
+    async function deleteMedia(kind, file) {
+      const tipo = kind === 'image' ? 'imagen' : 'video';
+      const ok = await showModal({
+        title: `Eliminar ${tipo}`,
+        message: `¿Eliminar «${file}»? Esta acción no se puede deshacer.`,
+        confirmText: 'Eliminar',
+        cancelText: 'Cancelar',
+        danger: true,
+      });
+      if (!ok) return;
+      const base = kind === 'image' ? '/api/admin/images/' : '/api/admin/media/';
+      const res = await fetch(base + encodeURIComponent(file), { method: 'DELETE' });
+      if (res.ok) {
+        if (kind === 'image') loadImages(); else loadMedia();
+        return;
+      }
+      let data = {};
+      try { data = await res.json(); } catch {}
+      if (res.status === 409 && Array.isArray(data.enUso)) {
+        await showModal({
+          title: 'No se puede eliminar',
+          message: `«${file}» está en uso por estos dispositivos. Quítalo de ellos (al editarlos) antes de borrarlo:`,
+          items: data.enUso.map((d) => d.nombre),
+          confirmText: 'Entendido',
+        });
+      } else {
+        await showModal({
+          title: 'Error',
+          message: data.error || 'No se pudo eliminar el archivo.',
+          confirmText: 'Entendido',
+        });
+      }
+    }
+
+    ['libBody', 'imgLibBody'].forEach((id) => {
+      document.getElementById(id).addEventListener('click', (e) => {
+        const btn = e.target.closest('.lib-del');
+        if (btn) deleteMedia(btn.dataset.kind, btn.dataset.file);
+      });
+    });
 
     async function loadMedia() {
       try {
@@ -110,7 +158,7 @@
           if (lbl) lbl.textContent = maxUploadMB
             ? `Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp · Máx. ${maxUploadMB} MB`
             : 'Videos: mp4/webm/ogg/mov/mkv · Imágenes: jpg/png/gif/webp';
-          renderSimpleLib(mediaCache, { body: 'libBody', count: 'libCount', empty: 'libEmpty' });
+          renderSimpleLib(mediaCache, { body: 'libBody', count: 'libCount', empty: 'libEmpty', kind: 'video' });
         }
       } catch {}
     }
@@ -121,7 +169,7 @@
         if (res.ok) {
           const data = await res.json();
           imagesCache = data.images || [];
-          renderSimpleLib(imagesCache, { body: 'imgLibBody', count: 'imgLibCount', empty: 'imgLibEmpty' });
+          renderSimpleLib(imagesCache, { body: 'imgLibBody', count: 'imgLibCount', empty: 'imgLibEmpty', kind: 'image' });
         }
       } catch {}
     }
@@ -133,14 +181,12 @@
       return `
         <div class="card" data-id="${esc(d.id)}">
           <div class="card-head">
-            <div>
-              <p class="dev-name">${esc(d.nombre)}</p>
-              <div class="dev-meta">
-                ID: ${esc(d.id)}<br>
-                IP: ${esc(d.ip_actual || '—')} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}
-              </div>
-            </div>
+            <p class="dev-name">${esc(d.nombre)}</p>
             <span class="status ${statusCls}"><span class="led"></span>${statusTxt}</span>
+          </div>
+          <div class="dev-meta">
+            ID: ${esc(d.id)}<br>
+            IP: ${esc(d.ip_actual || '—')} · Últ. conexión: ${fmtFecha(d.ultima_conexion)}
           </div>
           <div class="card-actions">
             <button class="btn small edit">${icon('edit')} Editar</button>
@@ -174,16 +220,10 @@
       }
     });
 
-    document.getElementById('addBtn').addEventListener('click', async () => {
-      const deviceId = prompt('ID único del dispositivo (igual al config del cliente):');
-      if (!deviceId) return;
-      const nombre = prompt('Nombre descriptivo (ej. "Pantalla Recepción"):') || '';
-      await fetch('/api/admin/device', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: deviceId.trim(), nombre: nombre.trim() }),
-      });
-      loadDevices();
+    // Vincular una pantalla: se hace en una página independiente con un
+    // formulario de 2 pasos (código del dispositivo + nombre).
+    document.getElementById('addBtn').addEventListener('click', () => {
+      location.href = '/vincular.html';
     });
 
     // ---------------------- Subida (videos e imágenes) ----------------------
@@ -304,7 +344,7 @@
     window.addEventListener('dragover', (e) => e.preventDefault());
     window.addEventListener('drop', (e) => e.preventDefault());
 
-    // ---------------------- Empresa (pairing code) ----------------------
+    // ---------------------- Empresa ----------------------
     async function loadEmpresaInfo() {
       const bar = document.getElementById('empresaBar');
       try {
@@ -313,16 +353,8 @@
         const e = await res.json();
         bar.innerHTML = `
           <span>Empresa: <strong>${esc(e.nombre)}</strong></span>
-          <span>· Código para vincular pantallas:
-            <code class="pcode">${esc(e.pairing_code)}</code>
-            <button class="btn ghost small" id="copyCode">Copiar</button>
-          </span>`;
-        document.getElementById('copyCode').addEventListener('click', () => {
-          navigator.clipboard?.writeText(e.pairing_code);
-          const b = document.getElementById('copyCode');
-          b.innerHTML = icon('check_circle') + ' Copiado';
-          setTimeout(() => (b.textContent = 'Copiar'), 1500);
-        });
+          <span class="muted">· Para añadir una pantalla, pulsa «Vincular pantalla»
+            e ingresa el código que la pantalla muestra en su primer arranque.</span>`;
       } catch {}
     }
 

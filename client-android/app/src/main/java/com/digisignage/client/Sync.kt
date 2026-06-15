@@ -33,17 +33,23 @@ object Sync {
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
     /**
-     * Resultado del heartbeat: listas a sincronizar (nombres o URLs) y el layout
-     * crudo (JSON) que se reenvia al reproductor para construir las zonas.
+     * Resultado del heartbeat: estado de asignacion, listas a sincronizar y el
+     * layout crudo (JSON). Si status == "unclaimed", la pantalla aun no esta
+     * vinculada y `claimCode` trae el codigo individual a mostrar.
      */
-    data class Heartbeat(val playlist: List<String>, val images: List<String>, val layout: String?)
+    data class Heartbeat(
+        val status: String,
+        val claimCode: String?,
+        val playlist: List<String>,
+        val images: List<String>,
+        val layout: String?,
+    )
 
-    /** POST /api/heartbeat -> { layout, playlist[], images[] }. Lanza excepción si falla. */
-    fun heartbeat(serverUrl: String, deviceId: String, deviceName: String, pairingCode: String): Heartbeat {
+    /** POST /api/heartbeat -> { status, claimCode?, layout, playlist[], images[] }. Lanza si falla. */
+    fun heartbeat(serverUrl: String, deviceId: String, deviceName: String): Heartbeat {
         val body = JSONObject()
             .put("deviceId", deviceId)
             .put("nombre", deviceName)
-            .put("pairingCode", pairingCode)
             .toString()
             .toRequestBody(JSON)
 
@@ -56,6 +62,8 @@ object Sync {
             if (!res.isSuccessful) throw RuntimeException("HTTP ${res.code}")
             val json = JSONObject(res.body?.string().orEmpty())
             return Heartbeat(
+                status = json.optString("status", "ok"),
+                claimCode = if (json.isNull("claimCode")) null else json.optString("claimCode").ifBlank { null },
                 playlist = toStringList(json.optJSONArray("playlist")),
                 images = toStringList(json.optJSONArray("images")),
                 layout = json.optJSONObject("layout")?.toString(),

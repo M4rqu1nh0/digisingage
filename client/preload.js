@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld('signage', {
   onSettings: (cb) => ipcRenderer.on('settings', (_event, settings) => cb(settings)),
   // cb recibe el clima actual ({ city, temp, code, ... }).
   onWeather: (cb) => ipcRenderer.on('weather', (_event, weather) => cb(weather)),
+  // cb recibe { claimCode } si la pantalla esta sin asignar, o null si ya lo esta.
+  onPairing: (cb) => ipcRenderer.on('pairing', (_event, pairing) => cb(pairing)),
 });

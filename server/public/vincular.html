@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DigiSignage · Vincular pantalla</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <script src="/js/theme.js"></script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="left">
+      <div class="brand"><span class="dot"></span> DigiSignage</div>
+      <a class="backlink" href="/dashboard.html"><span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Volver a Dispositivos</a>
+    </div>
+    <div class="right">
+      <span class="muted" id="clock"></span>
+      <button class="btn ghost small theme-toggle" data-theme-toggle></button>
+      <button class="btn ghost small" id="logoutBtn">Salir</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="wizard-card">
+      <h2>Vincular pantalla</h2>
+      <p class="wizard-desc">
+        Añade una pantalla a tu empresa en dos pasos: introduce el código que la
+        pantalla muestra en su primer arranque y dale un nombre para identificarla.
+      </p>
+
+      <!-- Indicador de pasos -->
+      <div class="steps">
+        <div class="step-pill active" id="stepPill1">
+          <span class="step-num">1</span>
+          <span class="step-label">Código del dispositivo</span>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-pill" id="stepPill2">
+          <span class="step-num">2</span>
+          <span class="step-label">Nombre de la pantalla</span>
+        </div>
+      </div>
+
+      <form id="wizardForm" autocomplete="off">
+        <!-- Paso 1: código -->
+        <div class="wizard-step active" id="step1">
+          <label for="digit-0">Código de vinculación</label>
+          <div class="code-boxes" id="codeBoxes">
+            <input class="code-digit" id="digit-0" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 1" autofocus />
+            <input class="code-digit" id="digit-1" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 2" />
+            <input class="code-digit" id="digit-2" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 3" />
+            <input class="code-digit" id="digit-3" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 4" />
+            <span class="code-gap"></span>
+            <input class="code-digit" id="digit-4" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 5" />
+            <input class="code-digit" id="digit-5" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 6" />
+            <input class="code-digit" id="digit-6" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 7" />
+            <input class="code-digit" id="digit-7" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Dígito 8" />
+          </div>
+          <div class="field-hint">8 dígitos que aparecen en la pantalla al encenderla por primera vez.</div>
+          <div class="error" id="error"></div>
+          <div class="wizard-actions">
+            <span class="spacer"></span>
+            <button class="btn" type="button" id="nextBtn">
+              Continuar <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Paso 2: nombre -->
+        <div class="wizard-step" id="step2">
+          <label for="nombre">Nombre de la pantalla</label>
+          <input type="text" id="nombre" maxlength="80" placeholder="Ej. Pantalla Recepción" />
+          <div class="field-hint">Te ayudará a reconocerla en el panel. Puedes cambiarlo más tarde.</div>
+          <div class="error" id="error2"></div>
+          <div class="wizard-actions">
+            <button class="btn ghost" type="button" id="backBtn">
+              <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span> Atrás
+            </button>
+            <span class="spacer"></span>
+            <button class="btn" type="submit" id="saveBtn">
+              <span class="material-symbols-outlined" aria-hidden="true">link</span> Guardar y vincular
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const form = document.getElementById('wizardForm');
+    const nombreEl = document.getElementById('nombre');
+    const errorBox = document.getElementById('error');
+    const errorBox2 = document.getElementById('error2');
+    const saveBtn = document.getElementById('saveBtn');
+    const digits = [...document.querySelectorAll('.code-digit')];
+
+    function getCode() {
+      return digits.map((d) => d.value).join('');
+    }
+
+    function showStep(n) {
+      document.getElementById('step1').classList.toggle('active', n === 1);
+      document.getElementById('step2').classList.toggle('active', n === 2);
+      const p1 = document.getElementById('stepPill1');
+      const p2 = document.getElementById('stepPill2');
+      p1.classList.toggle('active', n === 1);
+      p1.classList.toggle('done', n === 2);
+      p2.classList.toggle('active', n === 2);
+      if (n === 2) { nombreEl.focus(); return; }
+      // Al volver al paso 1, enfoca la primera casilla vacía.
+      (digits.find((d) => !d.value) || digits[0]).focus();
+    }
+
+    function showError(box, msg) {
+      box.textContent = msg;
+      box.classList.add('show');
+    }
+
+    // ---- Casillas del código (estilo OTP): auto-avance, borrado y pegado ----
+    digits.forEach((box, i) => {
+      box.addEventListener('input', () => {
+        box.value = box.value.replace(/\D/g, '').slice(0, 1);
+        errorBox.classList.remove('show');
+        if (box.value && i < digits.length - 1) digits[i + 1].focus();
+      });
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !box.value && i > 0) {
+          digits[i - 1].focus();
+        } else if (e.key === 'ArrowLeft' && i > 0) {
+          e.preventDefault(); digits[i - 1].focus();
+        } else if (e.key === 'ArrowRight' && i < digits.length - 1) {
+          e.preventDefault(); digits[i + 1].focus();
+        } else if (e.key === 'Enter') {
+          e.preventDefault(); document.getElementById('nextBtn').click();
+        }
+      });
+      box.addEventListener('focus', () => box.select());
+      box.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const nums = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, digits.length - i);
+        if (!nums) return;
+        [...nums].forEach((n, k) => { if (digits[i + k]) digits[i + k].value = n; });
+        const next = Math.min(i + nums.length, digits.length - 1);
+        digits[next].focus();
+        errorBox.classList.remove('show');
+      });
+    });
+
+    // Paso 1 -> Paso 2 (valida que estén los 8 dígitos).
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      if (getCode().length !== 8) {
+        showError(errorBox, 'Introduce los 8 dígitos del código.');
+        (digits.find((d) => !d.value) || digits[0]).focus();
+        return;
+      }
+      showStep(2);
+    });
+
+    document.getElementById('backBtn').addEventListener('click', () => showStep(1));
+
+    // Guardar: vincula el dispositivo.
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox2.classList.remove('show');
+      const code = getCode();
+      const nombre = nombreEl.value.trim();
+
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, nombre }),
+        });
+        if (res.ok) {
+          location.href = '/dashboard.html';
+          return;
+        }
+        if (res.status === 401) { location.href = '/login.html'; return; }
+        const data = await res.json().catch(() => ({}));
+        showError(errorBox2, data.error || 'No se pudo vincular la pantalla.');
+      } catch {
+        showError(errorBox2, 'Error de conexión con el servidor.');
+      }
+      saveBtn.disabled = false;
+    });
+
+    (async () => {
+      const me = await getMe();
+      if (!me) return;
+      startClock('clock');
+      wireLogout('logoutBtn');
+    })();
+  </script>
+</body>
+</html>

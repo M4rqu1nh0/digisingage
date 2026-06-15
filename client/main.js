@@ -76,9 +76,6 @@ function loadConfig() {
     serverUrl: (cfg.serverUrl || 'http://localhost:4000').trim().replace(/\/$/, ''),
     deviceId: cfg.deviceId,
     deviceName: cfg.deviceName || os.hostname(),
-    // Codigo de emparejamiento de la empresa (multi-tenant): se envia en el
-    // primer heartbeat para vincular esta pantalla a su empresa.
-    pairingCode: String(cfg.pairingCode || '').trim(),
     heartbeatSeconds: Number(cfg.heartbeatSeconds) || 60,
     imageSeconds: Number(cfg.imageSeconds) || 6,
     weather: (cfg.weather && typeof cfg.weather === 'object')
@@ -223,14 +220,28 @@ async function syncMedia(items, dir, re, urlFor) {
 let lastPlaylist = []; // ultima lista de videos disponible
 let lastImages = [];   // ultima lista de imagenes disponible
 let lastLayout = null;  // ultimo layout recibido del servidor
+let lastPairing = null; // { claimCode } si la pantalla esta sin asignar; null si asignada
 
 async function tick() {
   try {
     const res = await postJson(
       `${config.serverUrl}/api/heartbeat`,
-      { deviceId: config.deviceId, nombre: config.deviceName, pairingCode: config.pairingCode },
+      { deviceId: config.deviceId, nombre: config.deviceName },
       15000
     );
+
+    // Pantalla aun no vinculada a una empresa: mostrar su codigo individual para
+    // que el usuario lo ingrese en el dashboard. No se sincronizan medios.
+    if (res.status === 'unclaimed') {
+      log('[heartbeat] OK · sin asignar · codigo:', res.claimCode);
+      lastPairing = { claimCode: res.claimCode };
+      sendChannel('pairing', lastPairing);
+      return;
+    }
+    // Asignada: ocultar el overlay de vinculacion si estaba visible.
+    lastPairing = null;
+    sendChannel('pairing', null);
+
     const playlist = Array.isArray(res.playlist) ? res.playlist : [];
     const images = Array.isArray(res.images) ? res.images : [];
 
@@ -377,6 +388,7 @@ function createWindow() {
     sendChannel('playlist', lastPlaylist);
     sendChannel('images', lastImages);
     if (lastWeather) sendChannel('weather', lastWeather);
+    if (lastPairing) sendChannel('pairing', lastPairing);
   });
 
   mainWindow.loadFile('player.html');

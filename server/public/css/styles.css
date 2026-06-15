@@ -329,6 +329,70 @@ input[type="number"]:focus {
   line-height: 1;
 }
 
+/* ----------------- Modal de confirmación (<dialog>) ----------------- */
+.modal {
+  border: none;
+  background: transparent;
+  padding: 0;
+  max-width: 440px;
+  width: calc(100% - 32px);
+}
+
+.modal::backdrop {
+  background: rgba(15, 18, 30, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  /* El <dialog> trae color: CanvasText (negro) del navegador; lo forzamos a los
+     tokens para que el título sea legible en modo oscuro. */
+  color: var(--text);
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 1.214rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.modal-msg {
+  margin: 0 0 22px;
+  color: var(--text-soft);
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.modal-line {
+  margin: 0;
+}
+
+.modal-list {
+  margin: 12px 0 0;
+  padding-left: 22px;
+}
+
+.modal-list li {
+  margin: 2px 0;
+}
+
+/* Inputs dentro de un modal: primer label sin margen superior extra. */
+.modal-card label:first-of-type {
+  margin-top: 4px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 /* ----------------- Menú desplegable de acciones ----------------- */
 .menu {
   position: relative;
@@ -410,7 +474,7 @@ input[type="number"]:focus {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 24px;
+  padding: 12px max(24px, calc((100% - 1336px) / 2));
   background: color-mix(in srgb, var(--panel) 85%, transparent);
   backdrop-filter: var(--header-blur);
   -webkit-backdrop-filter: var(--header-blur);
@@ -444,7 +508,7 @@ input[type="number"]:focus {
 }
 
 .container {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 28px 24px 60px;
 }
@@ -550,10 +614,10 @@ input[type="number"]:focus {
 
 .card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .dev-name {
@@ -802,6 +866,26 @@ details.media-box summary {
   vertical-align: top;
 }
 
+.lib-table .lib-act-col {
+  width: 1%;
+}
+
+.lib-table td.lib-act {
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.lib-del {
+  color: var(--muted);
+}
+
+.lib-del:hover {
+  background: var(--red-soft);
+  border-color: var(--red);
+  color: var(--red-text);
+}
+
 .lib-name {
   word-break: break-all;
   font-weight: 500;
@@ -1017,11 +1101,16 @@ input[type="checkbox"] {
 .widget-select,
 .modo-select,
 select {
-  background: var(--panel);
+  /* Oculta la flecha nativa (pegada al borde) y dibuja una propia controlable. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7385' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 12px center / 16px,
+    var(--panel);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text);
-  padding: 9px 12px;
+  padding: 9px 36px 9px 12px;
   font-size: 0.929rem;
   font-family: inherit;
   cursor: pointer;
@@ -1029,9 +1118,26 @@ select {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* Modo oscuro: chevron en un gris más claro (var(--muted) no entra en el data-URI). */
+:root[data-theme="dark"] .preset-select,
+:root[data-theme="dark"] .widget-select,
+:root[data-theme="dark"] .modo-select,
+:root[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b96a8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .preset-select,
+  :root:not([data-theme]) .widget-select,
+  :root:not([data-theme]) .modo-select,
+  :root:not([data-theme]) select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b96a8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  }
+}
+
 select {
   width: 100%;
-  padding: 11px 13px;
+  padding: 11px 36px 11px 13px;
   font-size: 1rem;
 }
 
@@ -1237,8 +1343,13 @@ code.pcode,
 .lib-table td .btn.small {
   vertical-align: middle;
   margin-left: 6px;
+  display: none;
 }
-
+.lib-table tr:hover td{
+  .btn.small{
+    display: block;
+  }
+}
 /* Panel de empresa (pairing code) en el dashboard */
 .empresa-bar {
   display: flex;
@@ -1257,4 +1368,158 @@ code.pcode,
 
 .empresa-bar strong {
   color: var(--text);
+}
+
+/* ----------------- Asistente de vinculación (2 pasos) ----------------- */
+.wizard-card {
+  width: 100%;
+  max-width: 540px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow-lg);
+  padding: 32px;
+}
+
+.wizard-card h2 {
+  margin: 0 0 6px;
+  font-size: 1.571rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.wizard-desc {
+  color: var(--muted);
+  font-size: 0.964rem;
+  margin-bottom: 24px;
+}
+
+/* Indicador de pasos */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+
+.step-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: fit-content;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 0.893rem;
+  font-weight: 700;
+  border: 1px solid var(--border-strong);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.step-label {
+  font-size: 0.929rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-line {
+  flex: 1;
+  height: 2px;
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+.step-pill.active .step-num {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+
+.step-pill.active .step-label {
+  color: var(--text);
+}
+
+.step-pill.done .step-num {
+  background: var(--green-soft);
+  color: var(--green-text);
+  border-color: transparent;
+}
+
+/* Paneles de cada paso */
+.wizard-step {
+  display: none;
+}
+
+.wizard-step.active {
+  display: block;
+  animation: menu-in 0.15s ease;
+}
+
+.wizard-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.wizard-actions .spacer {
+  flex: 1;
+}
+
+/* Entrada del código en casillas individuales (estilo OTP) */
+.code-boxes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.code-boxes .code-gap {
+  flex: 0 0 8px;
+  height: 2px;
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+input.code-digit {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 14px 0;
+  text-align: center;
+  font-family: "JetBrains Mono", "Consolas", "Courier New", monospace;
+  font-size: 1.5rem;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 480px) {
+  input.code-digit {
+    padding: 11px 0;
+    font-size: 1.214rem;
+  }
+  .code-boxes {
+    gap: 5px;
+  }
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.857rem;
+  margin-top: 7px;
 }

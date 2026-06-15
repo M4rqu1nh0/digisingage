@@ -65,7 +65,13 @@ DigiSingage/
 ```
 
 - **Heartbeat (cada 60 s):** el cliente reporta su `deviceId` → el servidor actualiza
-  `ultima_conexion` + `ip_actual` y responde con la **playlist ordenada**.
+  `ultima_conexion` + `ip_actual` y responde con `status:"ok"` + la **playlist ordenada**.
+- **Vinculación de pantallas:** en el primer arranque, una pantalla nueva se registra
+  *sin asignar* y el heartbeat responde `status:"unclaimed"` con un **código individual**
+  que la pantalla muestra a pantalla completa. El admin lo ingresa en el panel
+  (*Dispositivos → «Vincular pantalla»*) para asignar esa pantalla a su empresa. Así se
+  pueden clonar/instalar clientes sin pre-configurar nada; la asignación ocurre al
+  iniciar el cliente por primera vez.
 - **Monitoreo:** si `ultima_conexion` < 3 min → 🟢 *En Línea*; si no → 🔴 *Fuera de Línea*.
 - **Sincronización de archivos:** el cliente descarga lo que falta y borra lo que sobra.
 - **Reproducción:** `index.html` reproduce en bucle y recarga el JSON al cerrar cada vuelta.
@@ -79,13 +85,14 @@ DigiSingage/
 | POST   | `/api/login`                  | —     | Login admin (credenciales de `.env`) → cookie JWT |
 | POST   | `/api/logout`                 | —     | Cierra sesión |
 | GET    | `/api/me`                     | JWT   | Verifica sesión |
-| POST   | `/api/heartbeat`              | —     | `{deviceId,nombre}` → actualiza estado y devuelve `{playlist, images}` |
+| POST   | `/api/heartbeat`              | —     | `{deviceId,nombre}` → `status:"ok"` con `{layout,playlist,images}`, o `status:"unclaimed"` con `claimCode` si la pantalla aún no está vinculada |
 | GET    | `/download/:filename`         | —     | Descarga un video maestro de `server/media/` |
 | GET    | `/image/:filename`            | —     | Descarga una imagen maestra de `server/images/` |
 | GET    | `/api/admin/devices`          | JWT   | Lista dispositivos con estado online/offline (incluye `playlist` e `images`) |
 | POST   | `/api/admin/playlist`         | JWT   | `{deviceId,videos[]}` → guarda el orden de videos |
 | POST   | `/api/admin/image-playlist`   | JWT   | `{deviceId,images[]}` → guarda el orden de imágenes (slider) |
-| POST   | `/api/admin/device`           | JWT   | Alta / renombrado manual |
+| POST   | `/api/admin/claim`            | JWT   | `{code,nombre?}` → vincula una pantalla a la empresa por su código individual |
+| POST   | `/api/admin/device`           | JWT   | `{deviceId,nombre}` → renombrar un dispositivo |
 | DELETE | `/api/admin/device/:id`       | JWT   | Elimina dispositivo y sus listas (videos + imágenes) |
 | GET    | `/api/admin/media`            | JWT   | Lista videos disponibles en el servidor |
 | POST   | `/api/admin/media`            | JWT   | Sube un video (multipart, campo `video`). `413` si supera `MAX_UPLOAD_MB` |

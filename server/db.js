@@ -97,6 +97,17 @@ if (!dispCols.some((c) => c.name === 'layout_json')) {
   db.exec('ALTER TABLE dispositivos ADD COLUMN layout_json TEXT');
 }
 
+// --- Migracion: codigo individual de vinculacion por dispositivo ---
+// Cada pantalla nueva se registra "sin asignar" (empresa_id NULL) con un
+// claim_code unico que el usuario introduce en el dashboard para vincularla a su
+// empresa. Al vincularla, el claim_code se limpia (NULL).
+if (!dispCols.some((c) => c.name === 'claim_code')) {
+  db.exec('ALTER TABLE dispositivos ADD COLUMN claim_code TEXT');
+}
+db.exec(
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_dispositivos_claim ON dispositivos (claim_code) WHERE claim_code IS NOT NULL'
+);
+
 // --- Migracion: unicidad GLOBAL del nombre de usuario ---
 // El login se hace solo con usuario + contrasena (sin empresa), asi que el
 // nombre de usuario debe identificar a UNA sola cuenta en todo el sistema
@@ -145,6 +156,13 @@ function genPairingCode() {
   return s;
 }
 
+// Codigo numerico de `len` digitos (con ceros a la izquierda). Sin sesgo.
+function genNumericCode(len) {
+  let s = '';
+  for (let i = 0; i < len; i++) s += crypto.randomInt(10);
+  return s;
+}
+
 // ----------------------- Sentencias preparadas -----------------------
 
 const stmts = {
@@ -154,10 +172,8 @@ const stmts = {
     VALUES (@id, @nombre, @pairing_code, 1, @created_at)
   `),
   getEmpresa: db.prepare('SELECT * FROM empresas WHERE id = ?'),
-  getEmpresaByCode: db.prepare('SELECT * FROM empresas WHERE pairing_code = ?'),
   getEmpresaByNombre: db.prepare('SELECT * FROM empresas WHERE nombre = ? COLLATE NOCASE'),
   listEmpresas: db.prepare('SELECT * FROM empresas ORDER BY nombre COLLATE NOCASE'),
-  updateEmpresaCode: db.prepare('UPDATE empresas SET pairing_code = ? WHERE id = ?'),
   updateEmpresaActiva: db.prepare('UPDATE empresas SET activa = ? WHERE id = ?'),
 
   // --- Usuarios ---
@@ -179,9 +195,18 @@ const stmts = {
   getDevice: db.prepare('SELECT * FROM dispositivos WHERE id = ?'),
 
   insertDevice: db.prepare(`
-    INSERT INTO dispositivos (id, empresa_id, nombre, ultima_conexion, ip_actual)
-    VALUES (@id, @empresa_id, @nombre, @ultima_conexion, @ip_actual)
+    INSERT INTO dispositivos (id, empresa_id, nombre, ultima_conexion, ip_actual, claim_code)
+    VALUES (@id, @empresa_id, @nombre, @ultima_conexion, @ip_actual, @claim_code)
   `),
+
+  // Vinculacion por codigo individual.
+  getDeviceByClaim: db.prepare('SELECT * FROM dispositivos WHERE claim_code = ?'),
+  claimDeviceStmt: db.prepare(
+    'UPDATE dispositivos SET empresa_id = @empresa_id, claim_code = NULL WHERE id = @id AND empresa_id IS NULL'
+  ),
+  pruneUnclaimed: db.prepare(
+    'DELETE FROM dispositivos WHERE empresa_id IS NULL AND ultima_conexion < ?'
+  ),
 
   touchDevice: db.prepare(`
     UPDATE dispositivos
@@ -200,8 +225,11 @@ const stmts = {
 
   deleteDevice: db.prepare('DELETE FROM dispositivos WHERE id = ? AND empresa_id = ?'),
 
-  // Migracion: dispositivos sin empresa.
-  listOrphanDevices: db.prepare('SELECT id FROM dispositivos WHERE empresa_id IS NULL'),
+  // Migracion: dispositivos huerfanos del esquema antiguo (sin empresa Y sin
+  // claim_code). Los "sin asignar" del flujo nuevo tienen claim_code y NO se migran.
+  listOrphanDevices: db.prepare(
+    'SELECT id FROM dispositivos WHERE empresa_id IS NULL AND claim_code IS NULL'
+  ),
   assignDeviceEmpresa: db.prepare('UPDATE dispositivos SET empresa_id = ? WHERE id = ?'),
 
   // Migracion: dispositivos sin layout_json (esquema anterior).
@@ -263,27 +291,9 @@ function getEmpresa(id) {
   return stmts.getEmpresa.get(id);
 }
 
-function getEmpresaByPairingCode(code) {
-  if (!code) return null;
-  return stmts.getEmpresaByCode.get(String(code).trim().toUpperCase()) || null;
-}
-
 function getEmpresaByNombre(nombre) {
   if (!nombre) return null;
   return stmts.getEmpresaByNombre.get(String(nombre).trim()) || null;
-}
-
-function rotatePairingCode(empresaId) {
-  for (let intento = 0; intento < 5; intento++) {
-    const code = genPairingCode();
-    try {
-      const r = stmts.updateEmpresaCode.run(code, empresaId);
-      return r.changes > 0 ? code : null;
-    } catch (e) {
-      if (!String(e.message).includes('UNIQUE')) throw e;
-    }
-  }
-  throw new Error('No se pudo generar un pairing_code unico');
 }
 
 function setEmpresaActiva(empresaId, activa) {
@@ -403,6 +413,7 @@ function ensureDeviceInEmpresa(empresaId, deviceId) {
     nombre: `Dispositivo ${deviceId.slice(0, 8)}`,
     ultima_conexion: null,
     ip_actual: null,
+    claim_code: null,
   });
   return stmts.getDevice.get(deviceId);
 }
@@ -410,39 +421,80 @@ function ensureDeviceInEmpresa(empresaId, deviceId) {
 // ----------------------------- Heartbeat (cliente) -----------------------------
 
 /**
- * Registra/actualiza un dispositivo y devuelve sus playlists.
- * - Dispositivo existente: ignora el pairingCode, solo refresca conexion/IP.
- * - Dispositivo nuevo: EXIGE un pairingCode valido de una empresa activa.
- * Devuelve null si el dispositivo es nuevo y no hay emparejamiento valido.
+ * Genera un claim_code unico de 8 digitos (reintenta ante colision con el indice
+ * unico). El alfabeto es solo numerico para que sea facil de teclear; la unicidad
+ * la garantizan este bucle y el indice UNIQUE de claim_code.
  */
-const heartbeat = db.transaction((deviceId, ip, nombreSugerido, pairingCode) => {
+function genUniqueClaimCode() {
+  for (let intento = 0; intento < 20; intento++) {
+    const code = genNumericCode(8);
+    if (!stmts.getDeviceByClaim.get(code)) return code;
+  }
+  throw new Error('No se pudo generar un claim_code unico');
+}
+
+/**
+ * Registra/actualiza un dispositivo y devuelve su estado.
+ * - Existente y asignado: refresca conexion/IP y devuelve { status:'ok', ... }.
+ * - Existente sin asignar: devuelve { status:'unclaimed', claimCode } para que el
+ *   cliente lo muestre en pantalla.
+ * - Nuevo: se registra SIN asignar (empresa_id NULL) con un claim_code individual
+ *   y devuelve { status:'unclaimed', claimCode }. La asignacion la hace el usuario
+ *   desde el dashboard (claimDevice).
+ */
+const heartbeat = db.transaction((deviceId, ip, nombreSugerido) => {
   const now = new Date().toISOString();
   const existing = stmts.getDevice.get(deviceId);
 
   if (existing) {
     stmts.touchDevice.run({ id: deviceId, ultima_conexion: now, ip_actual: ip });
+    if (!existing.empresa_id) {
+      return { status: 'unclaimed', claimCode: existing.claim_code };
+    }
     const layout = getLayout(deviceId);
     const { videos, images } = layouts.flattenMedia(layout);
-    return { empresaId: existing.empresa_id, layout, playlist: videos, images };
+    return { status: 'ok', empresaId: existing.empresa_id, layout, playlist: videos, images };
   }
 
-  // Dispositivo nuevo: requiere emparejamiento.
-  const empresa = getEmpresaByPairingCode(pairingCode);
-  if (!empresa || !empresa.activa) return null;
-
-  const layout = layouts.defaultLayout();
+  // Dispositivo nuevo: se registra sin asignar con su codigo individual.
+  const claimCode = genUniqueClaimCode();
   stmts.insertDevice.run({
     id: deviceId,
-    empresa_id: empresa.id,
+    empresa_id: null,
     nombre: nombreSugerido || `Dispositivo ${deviceId.slice(0, 8)}`,
     ultima_conexion: now,
     ip_actual: ip,
+    claim_code: claimCode,
   });
-  stmts.setLayout.run(JSON.stringify(layout), deviceId);
-
-  const { videos, images } = layouts.flattenMedia(layout);
-  return { empresaId: empresa.id, layout, playlist: videos, images };
+  return { status: 'unclaimed', claimCode };
 });
+
+/**
+ * Vincula un dispositivo SIN asignar a una empresa usando su codigo individual.
+ * Limpia el claim_code y le fija el layout por defecto si no tenia. Devuelve el
+ * dispositivo actualizado, o null si el codigo no existe o ya fue usado.
+ */
+const claimDevice = db.transaction((empresaId, claimCode, nombre) => {
+  // Quita espacios (el codigo se muestra agrupado, p. ej. "1234 5678").
+  const code = String(claimCode || '').replace(/\s+/g, '').toUpperCase();
+  if (!code) return null;
+  const dev = stmts.getDeviceByClaim.get(code);
+  if (!dev || dev.empresa_id) return null; // no existe o ya asignado
+  stmts.claimDeviceStmt.run({ empresa_id: empresaId, id: dev.id });
+  if (nombre && String(nombre).trim()) {
+    stmts.renameDevice.run(String(nombre).trim(), dev.id, empresaId);
+  }
+  if (!dev.layout_json) {
+    stmts.setLayout.run(JSON.stringify(layouts.defaultLayout()), dev.id);
+  }
+  return stmts.getDevice.get(dev.id);
+});
+
+/** Borra dispositivos sin asignar cuyo ultimo contacto supera `days` dias. */
+function pruneStaleUnclaimed(days = 7) {
+  const cutoff = new Date(Date.now() - days * 86400 * 1000).toISOString();
+  return stmts.pruneUnclaimed.run(cutoff).changes;
+}
 
 // ----------------------------- Dispositivos (admin) -----------------------------
 
@@ -473,18 +525,34 @@ const deleteDevice = db.transaction((empresaId, deviceId) => {
   return stmts.deleteDevice.run(deviceId, empresaId).changes > 0;
 });
 
-/** Crea un dispositivo vacio bajo la empresa (alta manual desde el panel). */
-function createDevice(empresaId, deviceId, nombre) {
-  const dev = ensureDeviceInEmpresa(empresaId, deviceId);
-  if (!dev) return false;
-  if (nombre) stmts.renameDevice.run(String(nombre).trim(), deviceId, empresaId);
-  return true;
+/** Renombra un dispositivo de la empresa. Devuelve true si existia y se renombro. */
+function renameDevice(empresaId, deviceId, nombre) {
+  return stmts.renameDevice.run(String(nombre).trim(), String(deviceId).trim(), empresaId).changes > 0;
 }
 
 /** Devuelve la empresa_id de un dispositivo (para acotar descargas), o null. */
 function getDeviceEmpresaId(deviceId) {
   const dev = stmts.getDevice.get(deviceId);
   return dev ? dev.empresa_id : null;
+}
+
+// ----------------------------- Medios (uso en layouts) -----------------------------
+
+/**
+ * Busca en que dispositivos de la empresa se usa un archivo de medio.
+ * `kind` es 'video' | 'image'. Devuelve [{ id, nombre }] (sin duplicados),
+ * que es justo lo que necesita la opcion "bloquear borrado si esta en uso".
+ */
+function findMediaUsage(empresaId, kind, filename) {
+  const target = String(filename || '').trim();
+  if (!target) return [];
+  const usados = [];
+  for (const d of stmts.listDevicesByEmpresa.all(empresaId)) {
+    const { videos, images } = layouts.flattenMedia(getLayout(d.id));
+    const list = kind === 'image' ? images : videos;
+    if (list.includes(target)) usados.push({ id: d.id, nombre: d.nombre });
+  }
+  return usados;
 }
 
 // ----------------------------- Seed / Migracion de datos -----------------------------
@@ -552,9 +620,7 @@ module.exports = {
   createEmpresa,
   listEmpresas,
   getEmpresa,
-  getEmpresaByPairingCode,
   getEmpresaByNombre,
-  rotatePairingCode,
   setEmpresaActiva,
   createEmpresaWithAdmin,
   // usuarios
@@ -566,6 +632,8 @@ module.exports = {
   deleteUser,
   // dispositivos / playlists (acotados por empresa)
   heartbeat,
+  claimDevice,
+  pruneStaleUnclaimed,
   getPlaylistArray,
   getImagePlaylistArray,
   // layout (zonas + widgets)
@@ -574,8 +642,10 @@ module.exports = {
   layouts,
   listDevicesWithStatus,
   deleteDevice,
-  createDevice,
+  renameDevice,
   getDeviceEmpresaId,
+  // medios
+  findMediaUsage,
   // seed / migracion
   ensureSeed,
 };
