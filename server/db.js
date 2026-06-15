@@ -108,6 +108,15 @@ db.exec(
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_dispositivos_claim ON dispositivos (claim_code) WHERE claim_code IS NOT NULL'
 );
 
+// --- Migracion: bandera "configured" (el admin guardo un layout al menos una vez) ---
+// El cliente la usa para mostrar "esperando contenido" tras vincular y activarse
+// solo cuando el admin configura el layout (medios o clima/reloj). Los dispositivos
+// ya vinculados se marcan como configurados para no regresionar instalaciones vivas.
+if (!dispCols.some((c) => c.name === 'configured')) {
+  db.exec('ALTER TABLE dispositivos ADD COLUMN configured INTEGER NOT NULL DEFAULT 0');
+  db.exec('UPDATE dispositivos SET configured = 1 WHERE empresa_id IS NOT NULL');
+}
+
 // --- Migracion: unicidad GLOBAL del nombre de usuario ---
 // El login se hace solo con usuario + contrasena (sin empresa), asi que el
 // nombre de usuario debe identificar a UNA sola cuenta en todo el sistema
@@ -218,6 +227,10 @@ const stmts = {
   renameDevice: db.prepare('UPDATE dispositivos SET nombre = ? WHERE id = ? AND empresa_id = ?'),
 
   setLayout: db.prepare('UPDATE dispositivos SET layout_json = ? WHERE id = ?'),
+
+  // Marca que el admin configuro el dispositivo (guardo un layout): activa el
+  // contenido en el cliente (clima/reloj o medios), no el default del claim.
+  markConfigured: db.prepare('UPDATE dispositivos SET configured = 1 WHERE id = ?'),
 
   listDevicesByEmpresa: db.prepare(
     'SELECT * FROM dispositivos WHERE empresa_id = ? ORDER BY nombre COLLATE NOCASE'
@@ -398,6 +411,8 @@ const saveLayout = db.transaction((empresaId, deviceId, layout) => {
   if (!dev) return null; // dispositivo de otra empresa
   const normalized = layouts.validateLayout(layout);
   stmts.setLayout.run(JSON.stringify(normalized), deviceId);
+  // El admin configuro el dispositivo: el cliente puede salir de "esperando contenido".
+  stmts.markConfigured.run(deviceId);
   return normalized;
 });
 
@@ -453,7 +468,14 @@ const heartbeat = db.transaction((deviceId, ip, nombreSugerido) => {
     }
     const layout = getLayout(deviceId);
     const { videos, images } = layouts.flattenMedia(layout);
-    return { status: 'ok', empresaId: existing.empresa_id, layout, playlist: videos, images };
+    return {
+      status: 'ok',
+      empresaId: existing.empresa_id,
+      configured: !!existing.configured,
+      layout,
+      playlist: videos,
+      images,
+    };
   }
 
   // Dispositivo nuevo: se registra sin asignar con su codigo individual.

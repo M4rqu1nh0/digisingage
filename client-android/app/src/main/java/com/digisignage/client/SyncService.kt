@@ -29,6 +29,10 @@ class SyncService : Service() {
     private val CHANNEL_ID = "digisignage_sync"
     private val NOTIF_ID = 1
 
+    // Sondeo rapido (segundos) mientras la pantalla no esta activa (sin vincular o
+    // esperando que el admin configure el contenido), para activarse casi al instante.
+    private val PAIRING_POLL_SECONDS = 3L
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var cfg: Config
 
@@ -57,8 +61,10 @@ class SyncService : Service() {
 
     private fun startSyncLoop() = scope.launch {
         while (isActive) {
-            tick()
-            delay(cfg.heartbeatSeconds * 1000L)
+            val active = tick()
+            // Activa: intervalo normal. Sin vincular o esperando contenido: sondeo rapido.
+            val secs = if (active) cfg.heartbeatSeconds.toLong() else PAIRING_POLL_SECONDS
+            delay(secs * 1000L)
         }
     }
 
@@ -70,19 +76,34 @@ class SyncService : Service() {
         }
     }
 
-    /** Un ciclo de heartbeat + sincronización de videos e imágenes. */
-    private fun tick() {
+    /**
+     * Un ciclo de heartbeat + sincronización. Devuelve true si la pantalla esta
+     * ACTIVA (vinculada y configurada); false si esta sin vincular o esperando
+     * contenido, para que el loop sondee mas rapido.
+     */
+    private fun tick(): Boolean {
         try {
             val hb = Sync.heartbeat(cfg.serverUrl, cfg.deviceId, cfg.deviceName)
 
             // Pantalla sin asignar: mostrar el codigo individual y no sincronizar.
             if (hb.status == "unclaimed") {
                 Log.i(TAG, "[heartbeat] OK · sin asignar · codigo: ${hb.claimCode}")
-                val p = org.json.JSONObject().put("claimCode", hb.claimCode ?: "")
+                val p = org.json.JSONObject()
+                    .put("status", "unclaimed")
+                    .put("claimCode", hb.claimCode ?: "")
                 SignageState.emit("pairing", p.toString())
-                return
+                return false
             }
-            // Asignada: ocultar el overlay de vinculacion si estaba visible.
+
+            // Vinculada pero el admin aun no configuro el layout: overlay de espera
+            // y NO se pinta la grilla vacia por defecto.
+            if (!hb.configured) {
+                Log.i(TAG, "[heartbeat] OK · vinculada · esperando contenido")
+                SignageState.emit("pairing", org.json.JSONObject().put("status", "waiting").toString())
+                return false
+            }
+
+            // Activa: ocultar el overlay de vinculacion si estaba visible.
             SignageState.emit("pairing", "null")
 
             // El layout define las zonas/widgets; se reenvia al reproductor (la
@@ -112,8 +133,10 @@ class SyncService : Service() {
                 SignageState.emit("playlist", JSONArray(available).toString())
                 Log.i(TAG, "[sync] Videos disponibles: $available")
             }
+            return true
         } catch (e: Exception) {
             Log.w(TAG, "[heartbeat] FALLO - ${e.message} (se conserva el contenido local)")
+            return false
         }
     }
 

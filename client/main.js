@@ -220,7 +220,24 @@ async function syncMedia(items, dir, re, urlFor) {
 let lastPlaylist = []; // ultima lista de videos disponible
 let lastImages = [];   // ultima lista de imagenes disponible
 let lastLayout = null;  // ultimo layout recibido del servidor
-let lastPairing = null; // { claimCode } si la pantalla esta sin asignar; null si asignada
+// Fase del ciclo de vida de la pantalla, para el overlay y el polling adaptativo:
+//   'unclaimed' -> sin vincular (muestra el codigo)
+//   'waiting'   -> vinculada pero el admin aun no configuro el layout (overlay de espera)
+//   'active'    -> el admin ya configuro el dispositivo (flujo normal)
+// El server marca `configured` cuando el admin guarda un layout (medios o, igual de
+// valido, clima/reloj), asi que el default sin tocar no cuenta como contenido.
+let phase = 'unclaimed';
+let lastPairing = null; // ultimo payload de 'pairing' enviado (para reenviar al recargar)
+
+// Sondeo rapido (segundos) mientras la pantalla no esta activa (sin vincular o
+// esperando que el admin configure el contenido), para activarse casi al instante.
+const PAIRING_POLL_SECONDS = 3;
+
+/** Envia el estado de overlay al reproductor y lo recuerda para reenviarlo al recargar. */
+function sendPairing(payload) {
+  lastPairing = payload;
+  sendChannel('pairing', payload);
+}
 
 async function tick() {
   try {
@@ -234,16 +251,26 @@ async function tick() {
     // que el usuario lo ingrese en el dashboard. No se sincronizan medios.
     if (res.status === 'unclaimed') {
       log('[heartbeat] OK · sin asignar · codigo:', res.claimCode);
-      lastPairing = { claimCode: res.claimCode };
-      sendChannel('pairing', lastPairing);
+      phase = 'unclaimed';
+      sendPairing({ status: 'unclaimed', claimCode: res.claimCode });
       return;
     }
-    // Asignada: ocultar el overlay de vinculacion si estaba visible.
-    lastPairing = null;
-    sendChannel('pairing', null);
+
+    // Vinculada pero el admin aun no configuro el layout: overlay de "esperando
+    // contenido" y NO se pinta la grilla vacia por defecto.
+    if (!res.configured) {
+      log('[heartbeat] OK · vinculada · esperando contenido');
+      phase = 'waiting';
+      sendPairing({ status: 'waiting' });
+      return;
+    }
 
     const playlist = Array.isArray(res.playlist) ? res.playlist : [];
     const images = Array.isArray(res.images) ? res.images : [];
+
+    // Activa: ocultar overlays y pintar el layout (flujo normal).
+    phase = 'active';
+    sendPairing(null);
 
     // El layout define las zonas y sus widgets. Se reenvia al reproductor para
     // que reconstruya la grilla si cambio (la descarga de medios usa playlist/images).
@@ -414,9 +441,14 @@ app.whenReady().then(() => {
   // Salir del kiosko (los controles estan ocultos en modo kiosko).
   globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
 
-  // Primer ciclo inmediato y luego en intervalo fijo.
-  tick();
-  setInterval(tick, config.heartbeatSeconds * 1000);
+  // Heartbeat con intervalo adaptativo: mientras la pantalla no este mostrando
+  // contenido (sin vincular o esperando), sondea rapido para activarse casi al
+  // instante; ya activa, vuelve al intervalo normal.
+  (async function loop() {
+    await tick();
+    const secs = phase === 'active' ? config.heartbeatSeconds : PAIRING_POLL_SECONDS;
+    setTimeout(loop, secs * 1000);
+  })();
 
   // Clima: ahora y luego cada 15 minutos.
   fetchWeather();
